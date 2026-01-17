@@ -137,17 +137,103 @@ def load_icon(name: str) -> Image.Image | None:
     return im.resize((im.size[0] * SCALE, im.size[1] * SCALE), Image.NEAREST)
 
 
+def is_night_vn() -> bool:
+    # Nếu muốn chọn icon day/night theo giờ VN
+    vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
+    h = datetime.now(vn_tz).hour
+    return (h < 6) or (h >= 18)
+
+
 def weather_icon_name(code: int | None) -> str:
-    # Adjust to your icon set names in /assets
-    if code in (0, 1):
-        return "w_sun.png"
-    if code in (2, 3, 45, 48):
-        return "w_cloud.png"
-    if code in (51, 53, 55, 61, 63, 65, 80, 81, 82):
-        return "w_rain.png"
-    if code in (95, 96, 99):
-        return "w_storm.png"
-    return "w_cloud.png"
+    """
+    Open-Meteo weathercode -> weather-icons-master png_48 icon filename.
+    Ref codes (Open-Meteo):
+      0 Clear sky
+      1,2,3 Mainly clear/Partly cloudy/Overcast
+      45,48 Fog
+      51,53,55 Drizzle
+      56,57 Freezing drizzle
+      61,63,65 Rain
+      66,67 Freezing rain
+      71,73,75 Snow fall
+      77 Snow grains
+      80,81,82 Rain showers
+      85,86 Snow showers
+      95 Thunderstorm
+      96,99 Thunderstorm with hail
+    """
+
+    # Nếu không có code, fallback
+    if code is None:
+        return "w_na.png"
+
+    night = is_night_vn()
+
+    # ===== Clear / Cloud =====
+    if code == 0:
+        return "w_night-clear.png" if night else "w_day-sunny.png"
+
+    if code == 1:
+        # Mainly clear
+        return "w_night-alt-partly-cloudy.png" if night else "w_day-sunny-overcast.png"
+
+    if code == 2:
+        # Partly cloudy
+        return "w_night-alt-partly-cloudy.png" if night else "w_day-cloudy.png"
+
+    if code == 3:
+        # Overcast
+        return "w_night-alt-cloudy.png" if night else "w_cloudy.png"
+
+    # ===== Fog =====
+    if code in (45, 48):
+        return "w_night-fog.png" if night else "w_day-fog.png"
+
+    # ===== Drizzle =====
+    if code in (51, 53, 55):
+        # Drizzle: use sprinkle
+        return "w_night-alt-sprinkle.png" if night else "w_day-sprinkle.png"
+
+    # ===== Freezing drizzle =====
+    if code in (56, 57):
+        return "w_night-alt-sleet.png" if night else "w_day-sleet.png"
+
+    # ===== Rain =====
+    if code == 61:
+        return "w_night-alt-rain.png" if night else "w_day-rain.png"
+    if code == 63:
+        return "w_night-alt-rain.png" if night else "w_rain.png"
+    if code == 65:
+        return "w_night-alt-rain.png" if night else "w_rain.png"
+
+    # ===== Freezing rain =====
+    if code in (66, 67):
+        return "w_night-alt-sleet.png" if night else "w_day-sleet.png"
+
+    # ===== Snow =====
+    if code in (71, 73, 75):
+        return "w_night-alt-snow.png" if night else "w_day-snow.png"
+    if code == 77:
+        return "w_snow.png"
+
+    # ===== Rain showers =====
+    if code in (80, 81, 82):
+        # showers vary
+        return "w_night-alt-showers.png" if night else "w_day-showers.png"
+
+    # ===== Snow showers =====
+    if code in (85, 86):
+        return "w_night-alt-snow.png" if night else "w_day-snow.png"
+
+    # ===== Thunderstorm =====
+    if code == 95:
+        return "w_night-alt-thunderstorm.png" if night else "w_day-thunderstorm.png"
+
+    # ===== Thunderstorm with hail =====
+    if code in (96, 99):
+        return "w_night-alt-hail.png" if night else "w_day-hail.png"
+
+    return "w_na.png"
 
 
 # ===== Format helpers =====
@@ -393,7 +479,7 @@ async def send_to_dot_image_api(client: httpx.AsyncClient, api_key: str, device_
 
     # Pixel style: NO dither => crisp
     payload = {"image": b64, "border": 0, "ditherType": "NONE"}
-
+    logger.info(b64)
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
