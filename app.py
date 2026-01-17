@@ -204,80 +204,96 @@ def draw_badge_1bit(d: ImageDraw.ImageDraw, x: int, y: int, label: str):
     w = d.textlength(label, font=FONT_BADGE)
     draw_text_bold(d, (x + r - w/2, y + r - 8), label, FONT_BADGE, fill=255, stroke=1)
 
-def render_png(city: str, prices: list[dict], weather: dict) -> bytes:
-    # 1-bit image: 0=black, 255=white
+def render_png_crypto(prices: list[dict]) -> bytes:
     img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
 
-    # Time VN
     vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
     now_vn = datetime.now(vn_tz)
-    header_left = "BTC  ETH  +  Thoi tiet"
-    header_right = now_vn.strftime("%d/%m %H:%M")  # 17/01 10:57
+    header = now_vn.strftime("%d/%m %H:%M")
 
-    draw_text_bold(d, (8, 6), header_left, FONT_TITLE, fill=255, stroke=1)
-    w_right = d.textlength(header_right, font=FONT_TITLE)
-    draw_text_bold(d, (W - 8 - w_right, 6), header_right, FONT_TITLE, fill=255, stroke=1)
+    # Title + time
+    draw_text_bold(d, (8, 6), "CRYPTO", FONT_TITLE, fill=255, stroke=2)
+    w_right = d.textlength(header, font=FONT_TITLE)
+    draw_text_bold(d, (W - 8 - w_right, 6), header, FONT_TITLE, fill=255, stroke=1)
 
-    # Divider
     d.line((8, 30, W - 8, 30), fill=255, width=1)
 
-    # ===== Left: Weather =====
-    # City (ngắn gọn) + mô tả tiếng Việt
+    # Big rows (2 coins)
+    y = 44
+    for p in prices[:2]:
+        sym = p["symbol"]
+        price = fmt_price_usd(p["price"])
+        chg = fmt_change(p.get("change_percent_24h"))
+
+        # Badge bigger
+        badge_char = "B" if sym == "BTC" else ("E" if sym == "ETH" else sym[:1])
+        draw_badge_1bit(d, 10, y - 10, badge_char)
+
+        # Symbol
+        draw_text_bold(d, (44, y - 10), sym, load_font(22, bold=True), fill=255, stroke=2)
+
+        # Price right aligned
+        f_price = load_font(22, bold=True)
+        pw = d.textlength(price, font=f_price)
+        draw_text_bold(d, (W - 8 - pw, y - 10), price, f_price, fill=255, stroke=2)
+
+        # Change line (smaller)
+        if chg:
+            draw_text_bold(d, (44, y + 18), chg, load_font(14, bold=True), fill=255, stroke=1)
+
+        y += 54
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
+def render_png_weather(city: str, weather: dict) -> bytes:
+    img = Image.new("1", (W, H), 0)
+    d = ImageDraw.Draw(img)
+
+    vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
+    now_vn = datetime.now(vn_tz)
+    header = now_vn.strftime("%d/%m %H:%M")
+
+    # Title + time
+    draw_text_bold(d, (8, 6), "THOI TIET", FONT_TITLE, fill=255, stroke=2)
+    w_right = d.textlength(header, font=FONT_TITLE)
+    draw_text_bold(d, (W - 8 - w_right, 6), header, FONT_TITLE, fill=255, stroke=1)
+
+    d.line((8, 30, W - 8, 30), fill=255, width=1)
+
+    # City (big)
     city_line = city
-    desc_line = weather_desc_vi(weather.get("code_now") or weather.get("code_day"))
+    draw_text_bold(d, (8, 40), city_line, load_font(20, bold=True), fill=255, stroke=2)
 
-    draw_text_bold(d, (8, 36), city_line, FONT_BODY, fill=255, stroke=1)
+    # Description (short)
+    desc = weather_desc_vi(weather.get("code_now") or weather.get("code_day"))
+    if len(desc) > 20:
+        desc = desc[:20] + "…"
+    draw_text_bold(d, (8, 66), desc, load_font(14, bold=True), fill=255, stroke=1)
 
-    # mô tả có thể dài: nếu quá dài thì cắt
-    if len(desc_line) > 18:
-        desc_line = desc_line[:18] + "…"
-    draw_text_bold(d, (8, 56), desc_line, FONT_SMALL, fill=255, stroke=1)
-
+    # Temp big
     temp_now = weather.get("temp_now")
     tmin = weather.get("tmin")
     tmax = weather.get("tmax")
 
     temp_str = f"{temp_now:.0f}°C" if isinstance(temp_now, (int, float)) else "--°C"
-    draw_text_bold(d, (8, 72), temp_str, FONT_TEMP, fill=255, stroke=1)
+    draw_text_bold(d, (8, 86), temp_str, load_font(44, bold=True), fill=255, stroke=2)
 
+    # Min/Max
     mm = "Min/Max "
     if isinstance(tmin, (int, float)) and isinstance(tmax, (int, float)):
         mm += f"{tmin:.0f}/{tmax:.0f}°"
     else:
         mm += "--/--"
-    draw_text_bold(d, (8, 114), mm, FONT_SMALL, fill=255, stroke=1)
-
-    # ===== Right: BTC/ETH =====
-    # Right panel: x from 160..288
-    panel_x = 160
-    y = 42
-
-    for p in prices[:2]:
-        sym = p["symbol"]
-        price_str = fmt_price_usd(p["price"])
-        chg_str = fmt_change(p.get("change_percent_24h"))
-
-        badge_char = "B" if sym == "BTC" else ("E" if sym == "ETH" else sym[:1])
-
-        draw_badge_1bit(d, panel_x, y - 6, badge_char)
-
-        draw_text_bold(d, (panel_x + 30, y - 6), sym, FONT_BODY, fill=255, stroke=1)
-
-        # giá canh phải
-        pw = d.textlength(price_str, font=FONT_BODY)
-        draw_text_bold(d, (W - 8 - pw, y - 6), price_str, FONT_BODY, fill=255, stroke=1)
-
-        # change dưới
-        if chg_str:
-            # nếu dài quá thì rút gọn bớt
-            draw_text_bold(d, (panel_x + 30, y + 16), chg_str, FONT_SMALL, fill=255, stroke=1)
-
-        y += 52
+    draw_text_bold(d, (170, 110), mm, load_font(14, bold=True), fill=255, stroke=1)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
+
 
 
 # ===== Dot API call (Image) =====
@@ -289,7 +305,7 @@ async def send_to_dot_image_api(
 ) -> None:
     url = DOT_IMAGE_API_V2.format(device_id=device_id)
     b64 = base64.b64encode(png_bytes).decode("ascii")
-    payload = {"image": b64, "border": 0, "ditherType": "ORDERED"}
+    payload = {"image": b64, "border": 0, "ditherType": "NONE"}
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -327,20 +343,26 @@ async def ticker_loop() -> None:
     }
 
     async with httpx.AsyncClient(timeout=timeout, headers=default_headers, follow_redirects=True) as client:
+        show_crypto = True  # bắt đầu bằng crypto
         while True:
             try:
-                prices_task = fetch_prices_binance(client)
-                weather_task = fetch_weather_today(client, lat, lon, tz)
-                prices, weather = await asyncio.gather(prices_task, weather_task)
+                if show_crypto:
+                    prices = await fetch_prices_binance(client)
+                    png = render_png_crypto(prices)
+                    logger.info("Render: CRYPTO")
+                else:
+                    weather = await fetch_weather_today(client, lat, lon, tz)
+                    png = render_png_weather(city, weather)
+                    logger.info("Render: WEATHER")
 
-                png = render_png(city=city, prices=prices, weather=weather)
                 await send_to_dot_image_api(client, api_key, device_id, png)
+                show_crypto = not show_crypto  # đảo mode cho lần sau
 
-                logger.info("Pushed image (BTC/ETH + weather)")
             except Exception as e:
                 logger.exception("Loop error: %s", e)
 
-            await asyncio.sleep(interval_secs)
+            await asyncio.sleep(60)  # mỗi 1 phút đổi màn hình
+
 
 
 # ===== FastAPI =====
