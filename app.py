@@ -36,47 +36,60 @@ FG = (255, 255, 255)
 MUTED = (180, 180, 180)
 
 # ===== Weather code mapping (Open-Meteo) =====
-WEATHER_TEXT = {
-    0: "Clear",
-    1: "Mainly clear",
-    2: "Partly cloudy",
-    3: "Overcast",
-    45: "Fog",
-    48: "Rime fog",
-    51: "Light drizzle",
-    53: "Drizzle",
-    55: "Heavy drizzle",
-    61: "Light rain",
-    63: "Rain",
-    65: "Heavy rain",
-    71: "Light snow",
-    73: "Snow",
-    75: "Heavy snow",
-    80: "Rain showers",
-    81: "Rain showers",
-    82: "Heavy showers",
-    95: "Thunderstorm",
-    96: "Thunderstorm+hail",
-    99: "Thunderstorm+hail",
+WEATHER_TEXT_VI = {
+    0: "Trời quang",
+    1: "Gần như quang",
+    2: "Ít mây",
+    3: "Nhiều mây",
+    45: "Sương mù",
+    48: "Sương mù băng",
+    51: "Mưa phùn nhẹ",
+    53: "Mưa phùn",
+    55: "Mưa phùn nặng",
+    61: "Mưa nhẹ",
+    63: "Mưa",
+    65: "Mưa to",
+    71: "Tuyết nhẹ",
+    73: "Tuyết",
+    75: "Tuyết dày",
+    80: "Mưa rào",
+    81: "Mưa rào",
+    82: "Mưa rào lớn",
+    95: "Dông",
+    96: "Dông kèm mưa đá",
+    99: "Dông kèm mưa đá",
 }
 
-def weather_desc(code: int | None) -> str:
+def weather_desc_vi(code: int | None) -> str:
     if code is None:
-        return "Weather"
-    return WEATHER_TEXT.get(code, f"Code {code}")
+        return "Thời tiết"
+    return WEATHER_TEXT_VI.get(code, f"Mã {code}")
 
 # ===== Fonts =====
-def load_font(size: int):
-    font_path = os.path.join(os.path.dirname(__file__), "fonts", "DejaVuSans.ttf")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FONT_DIR = os.path.join(BASE_DIR, "fonts")
+
+logger.info("BASE_DIR=%s", BASE_DIR)
+logger.info("FONT_DIR=%s", FONT_DIR)
+logger.info("Font files=%s", os.listdir(FONT_DIR))
+
+def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
+    if bold:
+        font_path = os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")
+    else:
+        font_path = os.path.join(FONT_DIR, "DejaVuSans.ttf")
+
     try:
         return ImageFont.truetype(font_path, size=size)
-    except Exception:
+    except Exception as e:
+        print(f"[WARN] Cannot load font {font_path}: {e}")
         return ImageFont.load_default()
 
-FONT_TITLE = load_font(14)
-FONT_BODY  = load_font(13)
-FONT_SMALL = load_font(11)
-FONT_BADGE = load_font(12)
+FONT_TITLE = load_font(16, bold=True)
+FONT_BODY  = load_font(16, bold=True)
+FONT_SMALL = load_font(12, bold=True)
+FONT_TEMP  = load_font(30, bold=True)
+FONT_BADGE = load_font(14, bold=True)
 
 
 # ===== Format helpers =====
@@ -99,6 +112,17 @@ def safe_float(v, default=None):
     except Exception:
         return default
 
+
+def draw_text_bold(d: ImageDraw.ImageDraw, xy, text: str, font, fill=255, stroke=1):
+    # stroke giúp nét dày hơn, e-ink dễ đọc
+    d.text(
+        xy,
+        text,
+        font=font,
+        fill=fill,
+        stroke_width=stroke,
+        stroke_fill=fill,
+    )
 
 # ===== Data fetch =====
 async def fetch_prices_binance(client: httpx.AsyncClient) -> list[dict]:
@@ -173,76 +197,82 @@ def draw_badge(draw: ImageDraw.ImageDraw, x: int, y: int, label: str):
     w = draw.textlength(label, font=FONT_BADGE)
     draw.text((x + r - w/2, y + r - 6), label, font=FONT_BADGE, fill=FG)
 
-def render_png(
-    city: str,
-    prices: list[dict],
-    weather: dict,
-) -> bytes:
-    img = Image.new("RGB", (W, H), BG)
+def draw_badge_1bit(d: ImageDraw.ImageDraw, x: int, y: int, label: str):
+    r = 12
+    d.ellipse((x, y, x + 2*r, y + 2*r), outline=255, width=3)
+    w = d.textlength(label, font=FONT_BADGE)
+    draw_text_bold(d, (x + r - w/2, y + r - 8), label, FONT_BADGE, fill=255, stroke=1)
+
+def render_png(city: str, prices: list[dict], weather: dict) -> bytes:
+    # 1-bit image: 0=black, 255=white
+    img = Image.new("1", (W, H), 0)
     d = ImageDraw.Draw(img)
 
-    # Header
-    now = datetime.now()
-    header_left = "Crypto + Weather"
-    header_right = now.strftime("%d/%m %H:%M")
-    d.text((10, 8), header_left, font=FONT_TITLE, fill=FG)
+    # Time VN
+    vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
+    now_vn = datetime.now(vn_tz)
+    header_left = "BTC  ETH  +  Thoi tiet"
+    header_right = now_vn.strftime("%d/%m %H:%M")  # 17/01 10:57
+
+    draw_text_bold(d, (8, 6), header_left, FONT_TITLE, fill=255, stroke=1)
     w_right = d.textlength(header_right, font=FONT_TITLE)
-    d.text((W - 10 - w_right, 8), header_right, font=FONT_TITLE, fill=MUTED)
+    draw_text_bold(d, (W - 8 - w_right, 6), header_right, FONT_TITLE, fill=255, stroke=1)
 
-    # Divider line
-    d.line((10, 28, W - 10, 28), fill=(80, 80, 80), width=1)
+    # Divider
+    d.line((8, 30, W - 8, 30), fill=255, width=1)
 
-    # Weather block (top-left)
-    # Layout: City + desc on one line, temp now big-ish, min/max small
+    # ===== Left: Weather =====
+    # City (ngắn gọn) + mô tả tiếng Việt
     city_line = city
-    desc_line = weather_desc(weather.get("code_now") or weather.get("code_day"))
+    desc_line = weather_desc_vi(weather.get("code_now") or weather.get("code_day"))
 
-    d.text((10, 34), city_line, font=FONT_BODY, fill=FG)
-    d.text((10, 50), desc_line, font=FONT_SMALL, fill=MUTED)
+    draw_text_bold(d, (8, 36), city_line, FONT_BODY, fill=255, stroke=1)
+
+    # mô tả có thể dài: nếu quá dài thì cắt
+    if len(desc_line) > 18:
+        desc_line = desc_line[:18] + "…"
+    draw_text_bold(d, (8, 56), desc_line, FONT_SMALL, fill=255, stroke=1)
 
     temp_now = weather.get("temp_now")
     tmin = weather.get("tmin")
     tmax = weather.get("tmax")
 
     temp_str = f"{temp_now:.0f}°C" if isinstance(temp_now, (int, float)) else "--°C"
-    d.text((10, 66), temp_str, font=load_font(26), fill=FG)
+    draw_text_bold(d, (8, 72), temp_str, FONT_TEMP, fill=255, stroke=1)
 
-    mm = "Min/Max: "
+    mm = "Min/Max "
     if isinstance(tmin, (int, float)) and isinstance(tmax, (int, float)):
-        mm += f"{tmin:.0f}° / {tmax:.0f}°"
+        mm += f"{tmin:.0f}/{tmax:.0f}°"
     else:
-        mm += "-- / --"
-    d.text((10, 96), mm, font=FONT_SMALL, fill=MUTED)
+        mm += "--/--"
+    draw_text_bold(d, (8, 114), mm, FONT_SMALL, fill=255, stroke=1)
 
-    # Prices block (right side)
-    # Reserve right panel x from 155..286
-    panel_x = 155
-    d.text((panel_x, 34), "Prices (USDT)", font=FONT_BODY, fill=FG)
-    d.line((panel_x, 54, W - 10, 54), fill=(80, 80, 80), width=1)
+    # ===== Right: BTC/ETH =====
+    # Right panel: x from 160..288
+    panel_x = 160
+    y = 42
 
-    y = 62
     for p in prices[:2]:
         sym = p["symbol"]
         price_str = fmt_price_usd(p["price"])
         chg_str = fmt_change(p.get("change_percent_24h"))
 
-        # badge "B" for BTC, "E" for ETH
         badge_char = "B" if sym == "BTC" else ("E" if sym == "ETH" else sym[:1])
-        draw_badge(d, panel_x, y, badge_char)
 
-        # symbol + price
-        d.text((panel_x + 26, y - 2), sym, font=FONT_BODY, fill=FG)
-        price_w = d.textlength(price_str, font=FONT_BODY)
-        d.text((W - 10 - price_w, y - 2), price_str, font=FONT_BODY, fill=FG)
+        draw_badge_1bit(d, panel_x, y - 6, badge_char)
 
-        # change line
+        draw_text_bold(d, (panel_x + 30, y - 6), sym, FONT_BODY, fill=255, stroke=1)
+
+        # giá canh phải
+        pw = d.textlength(price_str, font=FONT_BODY)
+        draw_text_bold(d, (W - 8 - pw, y - 6), price_str, FONT_BODY, fill=255, stroke=1)
+
+        # change dưới
         if chg_str:
-            d.text((panel_x + 26, y + 14), chg_str, font=FONT_SMALL, fill=MUTED)
+            # nếu dài quá thì rút gọn bớt
+            draw_text_bold(d, (panel_x + 30, y + 16), chg_str, FONT_SMALL, fill=255, stroke=1)
 
-        y += 40
-
-    # Footer hint
-    d.text((10, H - 16), "Updated automatically", font=FONT_SMALL, fill=(120, 120, 120))
+        y += 52
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
@@ -282,9 +312,9 @@ async def ticker_loop() -> None:
     interval_secs = max(int(os.getenv("INTERVAL_SECS", "600")), 2)
 
     # Default location: Ho Chi Minh City
-    city = os.getenv("WEATHER_CITY", "Ho Chi Minh")
-    lat = float(os.getenv("WEATHER_LAT", "10.8231"))
-    lon = float(os.getenv("WEATHER_LON", "106.6297"))
+    city = os.getenv("WEATHER_CITY", "Di Linh")
+    lat = float(os.getenv("WEATHER_LAT", "11.617810"))
+    lon = float(os.getenv("WEATHER_LON", "108.059262"))
     tz = os.getenv("WEATHER_TZ", "Asia/Ho_Chi_Minh")
 
     logger.info("Starting IMAGE ticker (interval=%ss, city=%s, lat=%s, lon=%s)", interval_secs, city, lat, lon)
