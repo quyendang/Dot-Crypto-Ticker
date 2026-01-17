@@ -7,7 +7,7 @@ import httpx
 from fastapi import FastAPI
 from dotenv import load_dotenv
 
-load_dotenv()  # chỉ có tác dụng khi chạy local có file .env
+load_dotenv()
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -16,17 +16,16 @@ logging.basicConfig(
 logger = logging.getLogger("dot-crypto-ticker")
 
 BINANCE_24HR = "https://api.binance.com/api/v3/ticker/24hr"
-DOT_TEXT_API = "https://dot.mindreset.tech/api/open/text"
 
-# Giống Rust: BTC, ETH, "USDT" (thực tế đang lấy USDCUSDT rồi map thành USDT)
+# NEW Dot API (v2) - deviceId nằm trên path
+DOT_TEXT_API_V2 = "https://dot.mindreset.tech/api/authV2/open/device/{device_id}/text"  # :contentReference[oaicite:1]{index=1}
+
 SYMBOLS = ["BTCUSDT", "ETHUSDT", "USDCUSDT"]
-DISPLAY_MAP = {"BTCUSDT": "BTC", "ETHUSDT": "ETH", "USDCUSDT": "USDT"}  # giống Rust
+DISPLAY_MAP = {"BTCUSDT": "BTC", "ETHUSDT": "ETH", "USDCUSDT": "USDT"}  # giữ đúng như Rust của bạn
 
 
 def format_price(price: float) -> str:
-    if price >= 1000.0:
-        return f"${price:,.2f}"
-    return f"${price:.2f}"
+    return f"${price:,.2f}" if price >= 1000.0 else f"${price:.2f}"
 
 
 def format_change(change_percent: float) -> str:
@@ -36,29 +35,22 @@ def format_change(change_percent: float) -> str:
 
 
 def create_display_message(prices: list[dict]) -> str:
-    # sort: BTC, ETH, USDT, others
     priority = {"BTC": 0, "ETH": 1, "USDT": 2}
+    prices_sorted = sorted(prices, key=lambda p: priority.get(p["symbol"], 3))[:3]
 
-    def key_fn(p: dict) -> int:
-        return priority.get(p["symbol"], 3)
-
-    prices_sorted = sorted(prices, key=key_fn)[:3]
-    lines: list[str] = []
-
+    lines = []
     for p in prices_sorted:
         price_str = format_price(p["price"])
-        change = p.get("change_percent_24h")
-        if change is None:
+        cp = p.get("change_percent_24h")
+        if cp is None:
             lines.append(f'{p["symbol"]} {price_str}')
         else:
-            lines.append(f'{p["symbol"]} {price_str} {format_change(change)}')
-
+            lines.append(f'{p["symbol"]} {price_str} {format_change(cp)}')
     return "\n".join(lines)
 
 
 async def fetch_crypto_prices_binance(client: httpx.AsyncClient) -> list[dict]:
-    results: list[dict] = []
-
+    results = []
     for sym in SYMBOLS:
         try:
             r = await client.get(BINANCE_24HR, params={"symbol": sym})
@@ -75,19 +67,15 @@ async def fetch_crypto_prices_binance(client: httpx.AsyncClient) -> list[dict]:
             logger.info("Fetched %s: %s", display, price)
 
             results.append(
-                {
-                    "symbol": display,
-                    "price": price,
-                    "change_percent_24h": change_percent_f,
-                }
+                {"symbol": display, "price": price, "change_percent_24h": change_percent_f}
             )
         except Exception as e:
-            logger.exception("Failed to fetch/parse Binance for %s: %s", sym, e)
+            logger.exception("Failed Binance fetch/parse for %s: %s", sym, e)
 
     return results
 
 
-async def send_to_dot_text_api(
+async def send_to_dot_text_api_v2(
     client: httpx.AsyncClient,
     api_key: str,
     device_id: str,
@@ -95,9 +83,11 @@ async def send_to_dot_text_api(
     message: str,
     signature: str,
 ) -> None:
+    url = DOT_TEXT_API_V2.format(device_id=device_id)
+
+    # v2: deviceId nằm trên URL; body chỉ cần refreshNow/title/message/signature...
     payload = {
         "refreshNow": True,
-        "deviceId": device_id,
         "title": title,
         "message": message,
         "signature": signature,
@@ -108,9 +98,12 @@ async def send_to_dot_text_api(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        # Tắt nén để tránh lỗi zlib/br/gzip mismatch
+        "Accept-Encoding": "identity",
     }
 
-    r = await client.post(DOT_TEXT_API, json=payload, headers=headers)
+    r = await client.post(url, json=payload, headers=headers)
+    # đọc text an toàn (không đụng decompress lạ vì đã identity)
     body = r.text
 
     if r.status_code // 100 != 2:
@@ -126,19 +119,27 @@ async def ticker_loop() -> None:
     title = os.getenv("DOT_TITLE", "Crypto Prices")
     interval_secs = max(int(os.getenv("INTERVAL_SECS", "600")), 2)
 
-    timeout = httpx.Timeout(30.0)
-    headers = {"User-Agent": "dot-crypto-ticker/0.2-python"}
-
     logger.info("Starting crypto price ticker (interval=%ss)", interval_secs)
 
-    async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
+    timeout = httpx.Timeout(30.0)
+    default_headers = {
+        "User-Agent": "dot-crypto-ticker/0.2-python",
+        # cũng tắt nén ở mức client cho chắc
+        "Accept-Encoding": "identity",
+    }
+
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        headers=default_headers,
+        follow_redirects=True,
+    ) as client:
         while True:
             try:
                 data = await fetch_crypto_prices_binance(client)
                 if data:
                     message = create_display_message(data)
                     signature = f"Updated at {datetime.now().strftime('%H:%M')}"
-                    await send_to_dot_text_api(client, api_key, device_id, title, message, signature)
+                    await send_to_dot_text_api_v2(client, api_key, device_id, title, message, signature)
                     logger.info("Prices updated: %s", [d["symbol"] for d in data])
                 else:
                     logger.error("No price data received")
@@ -153,7 +154,6 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def on_startup() -> None:
-    # Chạy loop nền
     asyncio.create_task(ticker_loop())
 
 
