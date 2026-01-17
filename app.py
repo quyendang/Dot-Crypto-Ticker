@@ -258,7 +258,7 @@ async def send_to_dot_image_api(
 ) -> None:
     url = DOT_IMAGE_API_V2.format(device_id=device_id)
     b64 = base64.b64encode(png_bytes).decode("ascii")
-    payload = {"image": b64}
+    payload = {"image": b64, "border": 0, "ditherType": "ORDERED"}
 
     headers = {
         "Authorization": f"Bearer {api_key}",
