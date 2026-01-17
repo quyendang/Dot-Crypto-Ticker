@@ -86,11 +86,11 @@ def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
         print(f"[WARN] Cannot load font {font_path}: {e}")
         return ImageFont.load_default()
 
-FONT_TITLE = load_font(16, bold=True)
-FONT_BODY  = load_font(16, bold=True)
-FONT_SMALL = load_font(12, bold=True)
-FONT_TEMP  = load_font(30, bold=True)
-FONT_BADGE = load_font(14, bold=True)
+FONT_TITLE = load_font(16, bold=False)
+FONT_BODY  = load_font(16, bold=False)
+FONT_SMALL = load_font(12, bold=False)
+FONT_TEMP  = load_font(30, bold=False)
+FONT_BADGE = load_font(14, bold=False)
 
 
 # ===== Format helpers =====
