@@ -1,3 +1,21 @@
+# app.py
+# Pixel-style Dot E-Ink dashboard: alternates CRYPTO <-> WEATHER every 60s
+# Output: 296x152 PNG (Base64) -> Dot Image API v2
+#
+# Folder layout:
+#   .
+#   ├── app.py
+#   ├── requirements.txt
+#   ├── fonts/
+#   │   └── pixel.ttf                (REQUIRED for best pixel look)
+#   └── assets/                      (OPTIONAL icons)
+#       ├── btc.png
+#       ├── eth.png
+#       ├── w_sun.png
+#       ├── w_cloud.png
+#       ├── w_rain.png
+#       └── w_storm.png
+
 import os
 import io
 import math
@@ -18,25 +36,22 @@ logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)s %(message)s",
 )
-logger = logging.getLogger("dot-crypto-ticker-image")
+logger = logging.getLogger("dot-pixel-dashboard")
 
 # ===== APIs =====
 BINANCE_24HR = "https://api.binance.com/api/v3/ticker/24hr"
+OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
 DOT_IMAGE_API_V2 = "https://dot.mindreset.tech/api/authV2/open/device/{device_id}/image"
 
-# Open-Meteo (no key)
-OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
-
+# ===== Coins =====
 SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 DISPLAY_MAP = {"BTCUSDT": "BTC", "ETHUSDT": "ETH"}
 
-# ===== Rendering constants =====
+# ===== Canvas =====
 W, H = 296, 152
-BG = (0, 0, 0)
-FG = (255, 255, 255)
-MUTED = (180, 180, 180)
+SCALE = 2  # render at 2x then downscale NEAREST for crisp pixel look
 
-# ===== Weather code mapping (Open-Meteo) =====
+# ===== Weather text VI (you can shorten if you prefer) =====
 WEATHER_TEXT_VI = {
     0: "Trời quang",
     1: "Gần như quang",
@@ -61,52 +76,81 @@ WEATHER_TEXT_VI = {
     99: "Dông kèm mưa đá",
 }
 
+
 def weather_desc_vi(code: int | None) -> str:
     if code is None:
         return "Thời tiết"
     return WEATHER_TEXT_VI.get(code, f"Mã {code}")
 
-# ===== Fonts =====
+
+# ===== Paths =====
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FONT_DIR = os.path.join(BASE_DIR, "fonts")
+ASSET_DIR = os.path.join(BASE_DIR, "assets")
 
-logger.info("BASE_DIR=%s", BASE_DIR)
-logger.info("FONT_DIR=%s", FONT_DIR)
-logger.info("Font files=%s", os.listdir(FONT_DIR))
 
-def load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:
-    if bold:
-        font_path = os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")
-    else:
-        font_path = os.path.join(FONT_DIR, "DejaVuSans.ttf")
-
+# ===== Font (pixel) =====
+def load_pixel_font(size: int) -> ImageFont.ImageFont:
+    """
+    Load pixel font from ./fonts/pixel.ttf
+    If missing, falls back to default (will look less pixel-perfect).
+    """
+    font_path = os.path.join(FONT_DIR, "pixel.ttf")
     try:
         return ImageFont.truetype(font_path, size=size)
     except Exception as e:
-        print(f"[WARN] Cannot load font {font_path}: {e}")
+        logger.warning("Cannot load pixel.ttf at %s (%s). Using default font.", font_path, e)
         return ImageFont.load_default()
 
-FONT_TITLE = load_font(16, bold=False)
-FONT_BODY  = load_font(16, bold=False)
-FONT_SMALL = load_font(12, bold=False)
-FONT_TEMP  = load_font(30, bold=False)
-FONT_BADGE = load_font(14, bold=False)
+
+# ===== Pixel draw helpers =====
+def px_text(d: ImageDraw.ImageDraw, x: int, y: int, text: str, font, fill=255):
+    d.text((x, y), text, font=font, fill=fill)
+
+
+def px_rect(d: ImageDraw.ImageDraw, x0: int, y0: int, x1: int, y1: int, w: int = 2, fill=255):
+    for i in range(w):
+        d.rectangle((x0 + i, y0 + i, x1 - i, y1 - i), outline=fill)
+
+
+def px_hline(d: ImageDraw.ImageDraw, x0: int, x1: int, y: int, w: int = 1, fill=255):
+    for i in range(w):
+        d.line((x0, y + i, x1, y + i), fill=fill)
+
+
+def px_dotted_hline(d: ImageDraw.ImageDraw, x0: int, x1: int, y: int, step: int = 4, fill=255):
+    x = x0
+    while x <= x1:
+        d.point((x, y), fill=fill)
+        x += step
+
+
+def make_canvas_2x() -> Image.Image:
+    return Image.new("1", (W * SCALE, H * SCALE), 0)
+
+
+def load_icon(name: str) -> Image.Image | None:
+    path = os.path.join(ASSET_DIR, name)
+    if not os.path.exists(path):
+        return None
+    im = Image.open(path).convert("1")
+    return im.resize((im.size[0] * SCALE, im.size[1] * SCALE), Image.NEAREST)
+
+
+def weather_icon_name(code: int | None) -> str:
+    # Adjust to your icon set names in /assets
+    if code in (0, 1):
+        return "w_sun.png"
+    if code in (2, 3, 45, 48):
+        return "w_cloud.png"
+    if code in (51, 53, 55, 61, 63, 65, 80, 81, 82):
+        return "w_rain.png"
+    if code in (95, 96, 99):
+        return "w_storm.png"
+    return "w_cloud.png"
 
 
 # ===== Format helpers =====
-def fmt_price_usd(p: float) -> str:
-    # Compact: BTC might be huge; still fit.
-    if p >= 1000:
-        return f"${p:,.0f}"
-    return f"${p:.2f}"
-
-def fmt_change(cp: float | None) -> str:
-    if cp is None or math.isnan(cp):
-        return ""
-    arrow = "↗" if cp >= 0 else "↘"
-    sign = "+" if cp >= 0 else ""
-    return f"{arrow}{sign}{cp:.1f}%"
-
 def safe_float(v, default=None):
     try:
         return float(v)
@@ -114,18 +158,24 @@ def safe_float(v, default=None):
         return default
 
 
-def draw_text_bold(d: ImageDraw.ImageDraw, xy, text: str, font, fill=255, stroke=1):
-    # stroke giúp nét dày hơn, e-ink dễ đọc
-    d.text(
-        xy,
-        text,
-        font=font,
-        fill=fill,
-        stroke_width=stroke,
-        stroke_fill=fill,
-    )
+def fmt_price_usd(p: float) -> str:
+    # Pixel screen: keep short, no decimals for big numbers
+    if p >= 1000:
+        return f"${p:,.0f}"
+    return f"${p:.2f}"
 
-# ===== Data fetch =====
+
+def fmt_change(cp: float | None) -> str:
+    if cp is None:
+        return ""
+    if isinstance(cp, float) and math.isnan(cp):
+        return ""
+    arrow = "↑" if cp >= 0 else "↓"   # use ASCII-ish arrows to avoid glyph issues
+    sign = "+" if cp >= 0 else ""
+    return f"{arrow}{sign}{cp:.1f}%"
+
+
+# ===== Fetch data =====
 async def fetch_prices_binance(client: httpx.AsyncClient) -> list[dict]:
     out: list[dict] = []
     for sym in SYMBOLS:
@@ -137,23 +187,22 @@ async def fetch_prices_binance(client: httpx.AsyncClient) -> list[dict]:
             data = r.json()
             price = safe_float(data.get("lastPrice"), 0.0) or 0.0
             cp = safe_float(data.get("priceChangePercent"), None)
-            out.append({
-                "symbol": DISPLAY_MAP.get(sym, sym),
-                "price": price,
-                "change_percent_24h": cp,
-            })
+            out.append(
+                {
+                    "symbol": DISPLAY_MAP.get(sym, sym),
+                    "price": price,
+                    "change_percent_24h": cp,
+                }
+            )
         except Exception as e:
             logger.exception("Binance fetch failed for %s: %s", sym, e)
-    # Ensure order BTC then ETH
+
     priority = {"BTC": 0, "ETH": 1}
     out.sort(key=lambda x: priority.get(x["symbol"], 9))
     return out
 
+
 async def fetch_weather_today(client: httpx.AsyncClient, lat: float, lon: float, tz: str) -> dict:
-    """
-    Returns dict with:
-      temp_now, tmin, tmax, code_now, code_day
-    """
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -164,8 +213,8 @@ async def fetch_weather_today(client: httpx.AsyncClient, lat: float, lon: float,
     r = await client.get(OPEN_METEO, params=params)
     if r.status_code // 100 != 2:
         raise RuntimeError(f"Open-Meteo error {r.status_code}: {r.text}")
-    data = r.json()
 
+    data = r.json()
     current = data.get("current_weather") or {}
     daily = data.get("daily") or {}
 
@@ -189,187 +238,224 @@ async def fetch_weather_today(client: httpx.AsyncClient, lat: float, lon: float,
     }
 
 
-# ===== Image rendering =====
-def draw_badge(draw: ImageDraw.ImageDraw, x: int, y: int, label: str):
-    # Minimal “logo-like” badge: circle outline + label inside
-    r = 10
-    draw.ellipse((x, y, x + 2*r, y + 2*r), outline=FG, width=2)
-    # center label
-    w = draw.textlength(label, font=FONT_BADGE)
-    draw.text((x + r - w/2, y + r - 6), label, font=FONT_BADGE, fill=FG)
+# ===== Render: WEATHER (pixel card like your sample) =====
+def render_weather_pixel(city: str, weather: dict) -> bytes:
+    img2 = make_canvas_2x()
+    d = ImageDraw.Draw(img2)
 
-def draw_badge_1bit(d: ImageDraw.ImageDraw, x: int, y: int, label: str):
-    r = 12
-    d.ellipse((x, y, x + 2*r, y + 2*r), outline=255, width=3)
-    w = d.textlength(label, font=FONT_BADGE)
-    draw_text_bold(d, (x + r - w/2, y + r - 8), label, FONT_BADGE, fill=255, stroke=1)
+    f_title = load_pixel_font(14 * SCALE)
+    f_city = load_pixel_font(22 * SCALE)
+    f_temp = load_pixel_font(40 * SCALE)
+    f_small = load_pixel_font(14 * SCALE)
 
-def render_png_crypto(prices: list[dict]) -> bytes:
-    img = Image.new("1", (W, H), 0)
-    d = ImageDraw.Draw(img)
+    pad = 6 * SCALE
+    px_rect(d, pad, pad, img2.size[0] - pad, img2.size[1] - pad, w=3, fill=255)
 
+    # Title: short uppercase (pixel style)
+    desc = weather_desc_vi(weather.get("code_now") or weather.get("code_day")).upper()
+    # shorten common Vietnamese for compact look
+    # ex: "NHIỀU MÂY" -> "NHIEU MAY" (avoid diacritics if font lacks glyphs)
+    desc = desc.replace("TRỜI", "TROI").replace("MÂY", "MAY").replace("SƯƠNG", "SUONG")
+    if len(desc) > 12:
+        desc = desc[:12]
+
+    title_y = pad + 6 * SCALE
+    tw = d.textlength(desc, font=f_title)
+    px_text(d, (img2.size[0] - tw) // 2, title_y, desc, f_title)
+
+    px_hline(d, pad + 6 * SCALE, img2.size[0] - pad - 6 * SCALE, pad + 24 * SCALE, w=2, fill=255)
+
+    # Icon
+    icon = load_icon(weather_icon_name(weather.get("code_day")))
+    if icon:
+        ix = (img2.size[0] - icon.size[0]) // 2
+        iy = pad + 30 * SCALE
+        img2.paste(icon, (ix, iy))
+
+    # City
+    city_u = city.upper()
+    if len(city_u) > 12:
+        city_u = city_u[:12]
+    cy = pad + 74 * SCALE
+    cw = d.textlength(city_u, font=f_city)
+    px_text(d, (img2.size[0] - cw) // 2, cy, city_u, f_city)
+
+    # underline
+    px_hline(d, pad + 50 * SCALE, img2.size[0] - pad - 50 * SCALE, cy + 28 * SCALE, w=2, fill=255)
+
+    # Temp
+    temp_now = weather.get("temp_now")
+    temp_str = f"{temp_now:.0f}°C" if isinstance(temp_now, (int, float)) else "--°C"
+    ty = cy + 34 * SCALE
+    tw2 = d.textlength(temp_str, font=f_temp)
+    px_text(d, (img2.size[0] - tw2) // 2, ty, temp_str, f_temp)
+
+    # dotted separator + Low/High
+    sep_y = img2.size[1] - pad - 26 * SCALE
+    px_dotted_hline(d, pad + 10 * SCALE, img2.size[0] - pad - 10 * SCALE, sep_y, step=4, fill=255)
+
+    tmin = weather.get("tmin")
+    tmax = weather.get("tmax")
+    low = f"L: {tmin:.0f}°C" if isinstance(tmin, (int, float)) else "L: --°C"
+    high = f"H: {tmax:.0f}°C" if isinstance(tmax, (int, float)) else "H: --°C"
+
+    px_text(d, pad + 20 * SCALE, sep_y + 6 * SCALE, low, f_small)
+    hw = d.textlength(high, font=f_small)
+    px_text(d, img2.size[0] - pad - 20 * SCALE - hw, sep_y + 6 * SCALE, high, f_small)
+
+    # Add small VN time top-right (optional, subtle)
     vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
-    now_vn = datetime.now(vn_tz)
-    header = now_vn.strftime("%d/%m %H:%M")
+    now_vn = datetime.now(vn_tz).strftime("%d/%m %H:%M")
+    wt = d.textlength(now_vn, font=f_small)
+    px_text(d, img2.size[0] - pad - wt, pad + 6 * SCALE, now_vn, f_small)
 
-    # Title + time
-    draw_text_bold(d, (8, 6), "CRYPTO", FONT_TITLE, fill=255, stroke=2)
-    w_right = d.textlength(header, font=FONT_TITLE)
-    draw_text_bold(d, (W - 8 - w_right, 6), header, FONT_TITLE, fill=255, stroke=1)
+    out = img2.resize((W, H), Image.NEAREST)
+    buf = io.BytesIO()
+    out.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
 
-    d.line((8, 30, W - 8, 30), fill=255, width=1)
 
-    # Big rows (2 coins)
-    y = 44
-    for p in prices[:2]:
-        sym = p["symbol"]
+# ===== Render: CRYPTO (pixel split BTC/ETH like your sample) =====
+def render_crypto_pixel(prices: list[dict]) -> bytes:
+    img2 = make_canvas_2x()
+    d = ImageDraw.Draw(img2)
+
+    f_head = load_pixel_font(22 * SCALE)
+    f_mid = load_pixel_font(14 * SCALE)
+    f_big = load_pixel_font(22 * SCALE)
+    f_sm = load_pixel_font(12 * SCALE)
+
+    pad = 6 * SCALE
+    px_rect(d, pad, pad, img2.size[0] - pad, img2.size[1] - pad, w=3, fill=255)
+
+    midx = img2.size[0] // 2
+    px_hline(d, pad + 6 * SCALE, img2.size[0] - pad - 6 * SCALE, pad + 24 * SCALE, w=2, fill=255)
+    d.line((midx, pad + 24 * SCALE, midx, img2.size[1] - pad), fill=255, width=2)
+
+    # Icons (optional)
+    btc_icon = load_icon("btc.png")
+    eth_icon = load_icon("eth.png")
+
+    left_x = pad + 10 * SCALE
+    right_x = midx + 10 * SCALE
+    top_y = pad + 30 * SCALE
+
+    if btc_icon:
+        img2.paste(btc_icon, (left_x, top_y))
+        px_text(d, left_x + 44 * SCALE, top_y + 2 * SCALE, "BTC", f_head)
+    else:
+        px_text(d, left_x, top_y + 2 * SCALE, "BTC", f_head)
+
+    if eth_icon:
+        img2.paste(eth_icon, (right_x, top_y))
+        px_text(d, right_x + 44 * SCALE, top_y + 2 * SCALE, "ETH", f_head)
+    else:
+        px_text(d, right_x, top_y + 2 * SCALE, "ETH", f_head)
+
+    def coin(sym: str):
+        return next((x for x in prices if x["symbol"] == sym), None)
+
+    def draw_coin(block_x: int, sym: str):
+        p = coin(sym)
+        if not p:
+            px_text(d, block_x, pad + 78 * SCALE, "PRICE:", f_mid)
+            px_text(d, block_x, pad + 98 * SCALE, "--", f_big)
+            return
+
         price = fmt_price_usd(p["price"])
         chg = fmt_change(p.get("change_percent_24h"))
 
-        # Badge bigger
-        badge_char = "B" if sym == "BTC" else ("E" if sym == "ETH" else sym[:1])
-        draw_badge_1bit(d, 10, y - 10, badge_char)
-
-        # Symbol
-        draw_text_bold(d, (44, y - 10), sym, load_font(22, bold=True), fill=255, stroke=2)
-
-        # Price right aligned
-        f_price = load_font(22, bold=True)
-        pw = d.textlength(price, font=f_price)
-        draw_text_bold(d, (W - 8 - pw, y - 10), price, f_price, fill=255, stroke=2)
-
-        # Change line (smaller)
+        # fewer lines = clearer on e-ink
+        px_text(d, block_x, pad + 78 * SCALE, "PRICE:", f_mid)
+        px_text(d, block_x, pad + 98 * SCALE, price.replace(",", ""), f_big)
         if chg:
-            draw_text_bold(d, (44, y + 18), chg, load_font(14, bold=True), fill=255, stroke=1)
+            px_text(d, block_x, pad + 124 * SCALE, chg, f_sm)
 
-        y += 54
+    draw_coin(left_x, "BTC")
+    draw_coin(right_x, "ETH")
 
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return buf.getvalue()
-
-
-def render_png_weather(city: str, weather: dict) -> bytes:
-    img = Image.new("1", (W, H), 0)
-    d = ImageDraw.Draw(img)
-
+    # Small VN time bottom-right (optional)
     vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
-    now_vn = datetime.now(vn_tz)
-    header = now_vn.strftime("%d/%m %H:%M")
+    now_vn = datetime.now(vn_tz).strftime("%d/%m %H:%M")
+    wt = d.textlength(now_vn, font=f_sm)
+    px_text(d, img2.size[0] - pad - wt, img2.size[1] - pad - 16 * SCALE, now_vn, f_sm)
 
-    # Title + time
-    draw_text_bold(d, (8, 6), "THOI TIET", FONT_TITLE, fill=255, stroke=2)
-    w_right = d.textlength(header, font=FONT_TITLE)
-    draw_text_bold(d, (W - 8 - w_right, 6), header, FONT_TITLE, fill=255, stroke=1)
-
-    d.line((8, 30, W - 8, 30), fill=255, width=1)
-
-    # City (big)
-    city_line = city
-    draw_text_bold(d, (8, 40), city_line, load_font(20, bold=True), fill=255, stroke=2)
-
-    # Description (short)
-    desc = weather_desc_vi(weather.get("code_now") or weather.get("code_day"))
-    if len(desc) > 20:
-        desc = desc[:20] + "…"
-    draw_text_bold(d, (8, 66), desc, load_font(14, bold=True), fill=255, stroke=1)
-
-    # Temp big
-    temp_now = weather.get("temp_now")
-    tmin = weather.get("tmin")
-    tmax = weather.get("tmax")
-
-    temp_str = f"{temp_now:.0f}°C" if isinstance(temp_now, (int, float)) else "--°C"
-    draw_text_bold(d, (8, 86), temp_str, load_font(44, bold=True), fill=255, stroke=2)
-
-    # Min/Max
-    mm = "Min/Max "
-    if isinstance(tmin, (int, float)) and isinstance(tmax, (int, float)):
-        mm += f"{tmin:.0f}/{tmax:.0f}°"
-    else:
-        mm += "--/--"
-    draw_text_bold(d, (170, 110), mm, load_font(14, bold=True), fill=255, stroke=1)
-
+    out = img2.resize((W, H), Image.NEAREST)
     buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
+    out.save(buf, format="PNG", optimize=True)
     return buf.getvalue()
-
 
 
 # ===== Dot API call (Image) =====
-async def send_to_dot_image_api(
-    client: httpx.AsyncClient,
-    api_key: str,
-    device_id: str,
-    png_bytes: bytes,
-) -> None:
+async def send_to_dot_image_api(client: httpx.AsyncClient, api_key: str, device_id: str, png_bytes: bytes) -> None:
     url = DOT_IMAGE_API_V2.format(device_id=device_id)
     b64 = base64.b64encode(png_bytes).decode("ascii")
+
+    # Pixel style: NO dither => crisp
     payload = {"image": b64, "border": 0, "ditherType": "NONE"}
 
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
-        "Accept-Encoding": "identity",  # tránh lỗi decompress lạ
+        "Accept-Encoding": "identity",
     }
 
     r = await client.post(url, json=payload, headers=headers)
-    body = r.text
     if r.status_code // 100 != 2:
-        logger.error("Dot Image API error %s: %s", r.status_code, body)
+        logger.error("Dot Image API error %s: %s", r.status_code, r.text)
         raise RuntimeError(f"Dot Image API status {r.status_code}")
 
     logger.info("Dot Image API ok %s", r.status_code)
 
 
-# ===== Main loop =====
+# ===== Main loop: alternate every minute =====
 async def ticker_loop() -> None:
     api_key = os.environ["DOT_API_KEY"]
     device_id = os.environ["DOT_DEVICE_ID"]
-    interval_secs = max(int(os.getenv("INTERVAL_SECS", "600")), 2)
 
-    # Default location: Ho Chi Minh City
-    city = os.getenv("WEATHER_CITY", "Di Linh")
-    lat = float(os.getenv("WEATHER_LAT", "11.617810"))
-    lon = float(os.getenv("WEATHER_LON", "108.059262"))
+    # Weather location
+    city = os.getenv("WEATHER_CITY", "Ha Noi")
+    lat = float(os.getenv("WEATHER_LAT", "21.0285"))
+    lon = float(os.getenv("WEATHER_LON", "105.8542"))
     tz = os.getenv("WEATHER_TZ", "Asia/Ho_Chi_Minh")
 
-    logger.info("Starting IMAGE ticker (interval=%ss, city=%s, lat=%s, lon=%s)", interval_secs, city, lat, lon)
+    logger.info("Starting pixel dashboard (alternate each 60s). City=%s lat=%s lon=%s", city, lat, lon)
 
     timeout = httpx.Timeout(30.0)
-    default_headers = {
-        "User-Agent": "dot-crypto-image/0.1",
-        "Accept-Encoding": "identity",
-    }
+    default_headers = {"User-Agent": "dot-pixel-dashboard/0.1", "Accept-Encoding": "identity"}
+
+    show_crypto = True  # start with crypto
 
     async with httpx.AsyncClient(timeout=timeout, headers=default_headers, follow_redirects=True) as client:
-        show_crypto = True  # bắt đầu bằng crypto
         while True:
             try:
                 if show_crypto:
                     prices = await fetch_prices_binance(client)
-                    png = render_png_crypto(prices)
-                    logger.info("Render: CRYPTO")
+                    png = render_crypto_pixel(prices)
+                    logger.info("Rendered: CRYPTO")
                 else:
                     weather = await fetch_weather_today(client, lat, lon, tz)
-                    png = render_png_weather(city, weather)
-                    logger.info("Render: WEATHER")
+                    png = render_weather_pixel(city, weather)
+                    logger.info("Rendered: WEATHER")
 
                 await send_to_dot_image_api(client, api_key, device_id, png)
-                show_crypto = not show_crypto  # đảo mode cho lần sau
+                show_crypto = not show_crypto
 
             except Exception as e:
                 logger.exception("Loop error: %s", e)
 
-            await asyncio.sleep(60)  # mỗi 1 phút đổi màn hình
+            await asyncio.sleep(60)
 
 
-
-# ===== FastAPI =====
+# ===== FastAPI (healthcheck for Koyeb) =====
 app = FastAPI()
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    # quick sanity log
+    logger.info("BASE_DIR=%s", BASE_DIR)
+    logger.info("FONT_DIR=%s exists=%s", FONT_DIR, os.path.exists(FONT_DIR))
+    logger.info("ASSET_DIR=%s exists=%s", ASSET_DIR, os.path.exists(ASSET_DIR))
     asyncio.create_task(ticker_loop())
 
 @app.get("/health")
