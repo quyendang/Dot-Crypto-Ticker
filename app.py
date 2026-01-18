@@ -484,9 +484,9 @@ def render_crypto_pixel(prices: list[dict]) -> bytes:
     # Font sizes match SwiftUI: symbol=50, price=30, currency=15, price_label=11, change=13
     f_symbol = load_default_font(50 * SCALE)
     f_price = load_default_font(22 * SCALE)
-    f_currency = load_default_font(15 * SCALE)
-    f_price_label = load_default_font(11 * SCALE)
-    f_change = load_default_font(13 * SCALE)
+    f_currency = load_default_font(16 * SCALE)
+    f_price_label = load_default_font(16 * SCALE)
+    f_change = load_default_font(16 * SCALE)
 
     pad = 10 * SCALE  # Padding 10px like SwiftUI
     midx = img2.size[0] // 2
