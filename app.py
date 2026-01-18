@@ -483,7 +483,7 @@ def render_crypto_pixel(prices: list[dict]) -> bytes:
     # Use default font with different sizes (matching SwiftUI)
     # Font sizes match SwiftUI: symbol=50, price=30, currency=15, price_label=11, change=13
     f_symbol = load_default_font(50 * SCALE)
-    f_price = load_default_font(30 * SCALE)
+    f_price = load_default_font(22 * SCALE)
     f_currency = load_default_font(15 * SCALE)
     f_price_label = load_default_font(11 * SCALE)
     f_change = load_default_font(13 * SCALE)
@@ -611,17 +611,20 @@ async def ticker_loop() -> None:
     async with httpx.AsyncClient(timeout=timeout, headers=default_headers, follow_redirects=True) as client:
         while True:
             try:
-                if show_crypto:
-                    prices = await fetch_prices_binance(client)
-                    png = render_crypto_pixel(prices)
-                    logger.info("Rendered: CRYPTO")
-                else:
-                    weather = await fetch_weather_today(client, lat, lon, tz)
-                    png = render_weather_pixel(city, weather)
-                    logger.info("Rendered: WEATHER")
+                prices = await fetch_prices_binance(client)
+                png = render_crypto_pixel(prices)
+                logger.info("Rendered: CRYPTO")
+                # if show_crypto:
+                #     prices = await fetch_prices_binance(client)
+                #     png = render_crypto_pixel(prices)
+                #     logger.info("Rendered: CRYPTO")
+                # else:
+                #     weather = await fetch_weather_today(client, lat, lon, tz)
+                #     png = render_weather_pixel(city, weather)
+                #     logger.info("Rendered: WEATHER")
 
                 await send_to_dot_image_api(client, api_key, device_id, png)
-                show_crypto = not show_crypto
+                # show_crypto = not show_crypto
 
             except Exception as e:
                 logger.exception("Loop error: %s", e)
