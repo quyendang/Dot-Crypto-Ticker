@@ -104,21 +104,21 @@ def load_pixel_font(size: int) -> ImageFont.ImageFont:
 
 
 # ===== Pixel draw helpers =====
-def px_text(d: ImageDraw.ImageDraw, x: int, y: int, text: str, font, fill=255):
+def px_text(d: ImageDraw.ImageDraw, x: int, y: int, text: str, font, fill=0):
     d.text((x, y), text, font=font, fill=fill)
 
 
-def px_rect(d: ImageDraw.ImageDraw, x0: int, y0: int, x1: int, y1: int, w: int = 2, fill=255):
+def px_rect(d: ImageDraw.ImageDraw, x0: int, y0: int, x1: int, y1: int, w: int = 2, fill=0):
     for i in range(w):
         d.rectangle((x0 + i, y0 + i, x1 - i, y1 - i), outline=fill)
 
 
-def px_hline(d: ImageDraw.ImageDraw, x0: int, x1: int, y: int, w: int = 1, fill=255):
+def px_hline(d: ImageDraw.ImageDraw, x0: int, x1: int, y: int, w: int = 1, fill=0):
     for i in range(w):
         d.line((x0, y + i, x1, y + i), fill=fill)
 
 
-def px_dotted_hline(d: ImageDraw.ImageDraw, x0: int, x1: int, y: int, step: int = 4, fill=255):
+def px_dotted_hline(d: ImageDraw.ImageDraw, x0: int, x1: int, y: int, step: int = 4, fill=0):
     x = x0
     while x <= x1:
         d.point((x, y), fill=fill)
@@ -126,14 +126,52 @@ def px_dotted_hline(d: ImageDraw.ImageDraw, x0: int, x1: int, y: int, step: int 
 
 
 def make_canvas_2x() -> Image.Image:
-    return Image.new("1", (W * SCALE, H * SCALE), 0)
+    return Image.new("1", (W * SCALE, H * SCALE), 255)  # Background trắng (255)
 
 
 def load_icon(name: str) -> Image.Image | None:
     path = os.path.join(ASSET_DIR, name)
     if not os.path.exists(path):
         return None
-    im = Image.open(path).convert("1")
+    im = Image.open(path)
+    
+    # Convert to RGBA first to handle transparency
+    if im.mode != "RGBA":
+        im = im.convert("RGBA")
+    
+    # Create a white background (since our canvas is now white)
+    bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
+    # Composite: paste icon on white background (icon on top)
+    # If icon has transparency, it will show white background
+    im = Image.alpha_composite(bg, im)
+    
+    # Convert to grayscale first
+    im = im.convert("L")
+    
+    # Check average brightness to determine if we need to invert
+    pixels = list(im.getdata())
+    total_brightness = sum(pixels)
+    avg_brightness = total_brightness / len(pixels) if pixels else 128
+    
+    # If average is bright (> 180), likely a light icon on transparent bg -> invert to make it black
+    # If average is dark (< 80), likely a dark icon -> keep as is (will be black)
+    # Otherwise, threshold and invert to make icon black
+    if avg_brightness > 180:
+        # Light icon, invert to make it black
+        im = Image.eval(im, lambda x: 255 - x)
+    elif avg_brightness < 80:
+        # Dark icon, keep as is (will be black)
+        pass
+    else:
+        # Medium brightness, threshold to make it black
+        # Convert pixels < 128 to black (0), >= 128 to white (255)
+        im = Image.eval(im, lambda x: 0 if x < 128 else 255)
+        # Then invert to make the icon part black
+        im = Image.eval(im, lambda x: 255 - x)
+    
+    # Convert to 1-bit (black and white)
+    im = im.convert("1")
+    
     return im.resize((im.size[0] * SCALE, im.size[1] * SCALE), Image.NEAREST)
 
 
@@ -335,7 +373,7 @@ def render_weather_pixel(city: str, weather: dict) -> bytes:
     f_small = load_pixel_font(14 * SCALE)
 
     pad = 6 * SCALE
-    px_rect(d, pad, pad, img2.size[0] - pad, img2.size[1] - pad, w=3, fill=255)
+    px_rect(d, pad, pad, img2.size[0] - pad, img2.size[1] - pad, w=3, fill=0)
 
     # Title: short uppercase (pixel style)
     desc = weather_desc_vi(weather.get("code_now") or weather.get("code_day")).upper()
@@ -349,14 +387,15 @@ def render_weather_pixel(city: str, weather: dict) -> bytes:
     tw = d.textlength(desc, font=f_title)
     px_text(d, (img2.size[0] - tw) // 2, title_y, desc, f_title)
 
-    px_hline(d, pad + 6 * SCALE, img2.size[0] - pad - 6 * SCALE, pad + 24 * SCALE, w=2, fill=255)
+    px_hline(d, pad + 6 * SCALE, img2.size[0] - pad - 6 * SCALE, pad + 24 * SCALE, w=2, fill=0)
 
     # Icon
     icon = load_icon(weather_icon_name(weather.get("code_day")))
     if icon:
         ix = (img2.size[0] - icon.size[0]) // 2
         iy = pad + 30 * SCALE
-        img2.paste(icon, (ix, iy))
+        # Paste icon with mask to handle transparency properly
+        img2.paste(icon, (ix, iy), icon if icon.mode == "1" else None)
 
     # City
     city_u = city.upper()
@@ -367,7 +406,7 @@ def render_weather_pixel(city: str, weather: dict) -> bytes:
     px_text(d, (img2.size[0] - cw) // 2, cy, city_u, f_city)
 
     # underline
-    px_hline(d, pad + 50 * SCALE, img2.size[0] - pad - 50 * SCALE, cy + 28 * SCALE, w=2, fill=255)
+    px_hline(d, pad + 50 * SCALE, img2.size[0] - pad - 50 * SCALE, cy + 28 * SCALE, w=2, fill=0)
 
     # Temp
     temp_now = weather.get("temp_now")
@@ -378,7 +417,7 @@ def render_weather_pixel(city: str, weather: dict) -> bytes:
 
     # dotted separator + Low/High
     sep_y = img2.size[1] - pad - 26 * SCALE
-    px_dotted_hline(d, pad + 10 * SCALE, img2.size[0] - pad - 10 * SCALE, sep_y, step=4, fill=255)
+    px_dotted_hline(d, pad + 10 * SCALE, img2.size[0] - pad - 10 * SCALE, sep_y, step=4, fill=0)
 
     tmin = weather.get("tmin")
     tmax = weather.get("tmax")
@@ -412,11 +451,11 @@ def render_crypto_pixel(prices: list[dict]) -> bytes:
     f_sm = load_pixel_font(12 * SCALE)
 
     pad = 6 * SCALE
-    px_rect(d, pad, pad, img2.size[0] - pad, img2.size[1] - pad, w=3, fill=255)
+    px_rect(d, pad, pad, img2.size[0] - pad, img2.size[1] - pad, w=3, fill=0)
 
     midx = img2.size[0] // 2
-    px_hline(d, pad + 6 * SCALE, img2.size[0] - pad - 6 * SCALE, pad + 24 * SCALE, w=2, fill=255)
-    d.line((midx, pad + 24 * SCALE, midx, img2.size[1] - pad), fill=255, width=2)
+    px_hline(d, pad + 6 * SCALE, img2.size[0] - pad - 6 * SCALE, pad + 24 * SCALE, w=2, fill=0)
+    d.line((midx, pad + 24 * SCALE, midx, img2.size[1] - pad), fill=0, width=2)
 
     # Icons (optional)
     btc_icon = load_icon("btc.png")
@@ -427,13 +466,13 @@ def render_crypto_pixel(prices: list[dict]) -> bytes:
     top_y = pad + 30 * SCALE
 
     if btc_icon:
-        img2.paste(btc_icon, (left_x, top_y))
+        img2.paste(btc_icon, (left_x, top_y), btc_icon if btc_icon.mode == "1" else None)
         px_text(d, left_x + 44 * SCALE, top_y + 2 * SCALE, "BTC", f_head)
     else:
         px_text(d, left_x, top_y + 2 * SCALE, "BTC", f_head)
 
     if eth_icon:
-        img2.paste(eth_icon, (right_x, top_y))
+        img2.paste(eth_icon, (right_x, top_y), eth_icon if eth_icon.mode == "1" else None)
         px_text(d, right_x + 44 * SCALE, top_y + 2 * SCALE, "ETH", f_head)
     else:
         px_text(d, right_x, top_y + 2 * SCALE, "ETH", f_head)
