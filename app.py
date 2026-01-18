@@ -449,42 +449,62 @@ def render_weather_pixel(city: str, weather: dict) -> bytes:
     return buf.getvalue()
 
 
-# ===== Render: CRYPTO (pixel split BTC/ETH like your sample) =====
+# ===== Render: CRYPTO (SwiftUI-style layout) =====
 def render_crypto_pixel(prices: list[dict]) -> bytes:
     img2 = make_canvas_2x()
     d = ImageDraw.Draw(img2)
 
-    f_head = load_pixel_font(22 * SCALE)
-    f_mid = load_pixel_font(14 * SCALE)
-    f_big = load_pixel_font(22 * SCALE)
-    f_sm = load_pixel_font(12 * SCALE)
+    # Use default system fonts (monospaced style like SwiftUI)
+    # Font sizes match SwiftUI: symbol=50, price=30, currency=15, price_label=11, change=13
+    try:
+        # Try to use system monospaced font (Courier New or similar)
+        # On Linux/Windows, try different paths
+        font_paths = [
+            "/System/Library/Fonts/Supplemental/Courier New Bold.ttf",  # macOS
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",  # Linux
+            "C:/Windows/Fonts/courbd.ttf",  # Windows
+        ]
+        f_symbol = None
+        f_price = None
+        f_currency = None
+        f_price_label = None
+        f_change = None
+        
+        for font_path in font_paths:
+            try:
+                f_symbol = ImageFont.truetype(font_path, 50 * SCALE)
+                f_price = ImageFont.truetype(font_path, 30 * SCALE)
+                f_currency = ImageFont.truetype(font_path, 15 * SCALE)
+                f_price_label = ImageFont.truetype(font_path, 11 * SCALE)
+                f_change = ImageFont.truetype(font_path, 13 * SCALE)
+                break
+            except:
+                continue
+        
+        # Fallback to default font if system fonts not available
+        if f_symbol is None:
+            f_symbol = ImageFont.load_default()
+            f_price = ImageFont.load_default()
+            f_currency = ImageFont.load_default()
+            f_price_label = ImageFont.load_default()
+            f_change = ImageFont.load_default()
+    except Exception as e:
+        logger.warning("Could not load system fonts, using default: %s", e)
+        f_symbol = ImageFont.load_default()
+        f_price = ImageFont.load_default()
+        f_currency = ImageFont.load_default()
+        f_price_label = ImageFont.load_default()
+        f_change = ImageFont.load_default()
 
-    pad = 6 * SCALE
-    px_rect(d, pad, pad, img2.size[0] - pad, img2.size[1] - pad, w=3, fill=0)
-
+    pad = 10 * SCALE  # Padding 10px like SwiftUI
     midx = img2.size[0] // 2
-    px_hline(d, pad + 6 * SCALE, img2.size[0] - pad - 6 * SCALE, pad + 24 * SCALE, w=2, fill=0)
-    d.line((midx, pad + 24 * SCALE, midx, img2.size[1] - pad), fill=0, width=2)
-
-    # Icons (optional)
-    btc_icon = load_icon("btc.png")
-    eth_icon = load_icon("eth.png")
-
-    left_x = pad + 10 * SCALE
-    right_x = midx + 10 * SCALE
-    top_y = pad + 30 * SCALE
-
-    if btc_icon:
-        img2.paste(btc_icon, (left_x, top_y), btc_icon)
-        px_text(d, left_x + 44 * SCALE, top_y + 2 * SCALE, "BTC", f_head)
-    else:
-        px_text(d, left_x, top_y + 2 * SCALE, "BTC", f_head)
-
-    if eth_icon:
-        img2.paste(eth_icon, (right_x, top_y), eth_icon)
-        px_text(d, right_x + 44 * SCALE, top_y + 2 * SCALE, "ETH", f_head)
-    else:
-        px_text(d, right_x, top_y + 2 * SCALE, "ETH", f_head)
+    
+    # Divider line in the middle (opacity 0.35 = lighter black, use dotted pattern)
+    divider_y_start = pad
+    divider_y_end = img2.size[1] - pad
+    # Draw divider with lighter color (use dotted pattern for opacity effect)
+    for y in range(divider_y_start, divider_y_end, 3):
+        d.point((midx, y), fill=0)
 
     def coin(sym: str):
         return next((x for x in prices if x["symbol"] == sym), None)
@@ -492,67 +512,63 @@ def render_crypto_pixel(prices: list[dict]) -> bytes:
     def draw_coin(block_x: int, sym: str):
         p = coin(sym)
         if not p:
-            px_text(d, block_x, pad + 78 * SCALE, "PRICE:", f_mid)
-            px_text(d, block_x, pad + 98 * SCALE, "--", f_big)
+            # Draw symbol
+            d.text((block_x, pad), sym, font=f_symbol, fill=0)
+            # Draw PRICE label
+            d.text((block_x, pad + 60 * SCALE), "PRICE:", font=f_price_label, fill=0)
+            # Draw placeholder
+            d.text((block_x, pad + 80 * SCALE), "--", font=f_price, fill=0)
             return
 
-        price = fmt_price_usd(p["price"])
-        chg = fmt_change(p.get("change_percent_24h"))
+        price_val = p["price"]
+        # Format price: remove commas, keep 2 decimals
+        price_str = f"{price_val:.2f}"
+        chg = p.get("change_percent_24h", 0.0)
         
-        # Get 24h high/low from Binance data (we need to fetch this)
-        # For now, use price as placeholder
-        high_24h = p.get("high_24h", p["price"] * 1.01)
-        low_24h = p.get("low_24h", p["price"] * 0.99)
+        # Calculate positions (matching SwiftUI spacing: 6px between elements)
+        y_symbol = pad
+        y_price_label = pad + 60 * SCALE  # Spacing 60px from top
+        y_price = pad + 80 * SCALE  # Spacing 80px from top
+        
+        # Calculate column width
+        column_width = (midx - pad) if sym == "BTC" else (img2.size[0] - midx - pad)
+        
+        # 1. Draw SYMBOL (large, heavy, centered in column)
+        symbol_text = sym
+        symbol_width = d.textlength(symbol_text, font=f_symbol)
+        symbol_x = block_x + (column_width - symbol_width) // 2
+        d.text((symbol_x, y_symbol), symbol_text, font=f_symbol, fill=0)
+        
+        # 2. Draw PRICE: label + ChangeBadge on same line
+        price_label_text = "PRICE:"
+        price_label_width = d.textlength(price_label_text, font=f_price_label)
+        d.text((block_x, y_price_label), price_label_text, font=f_price_label, fill=0)
+        
+        # ChangeBadge: percent + arrow (right-aligned in column)
+        change_text = f"{chg:+.1f}%"
+        arrow = "↑" if chg >= 0 else "↓"
+        change_badge_text = f"{change_text} {arrow}"
+        change_width = d.textlength(change_badge_text, font=f_change)
+        change_x = block_x + column_width - change_width
+        d.text((change_x, y_price_label), change_badge_text, font=f_change, fill=0)
+        
+        # 3. Draw big price + currency (on same line, aligned to baseline)
+        price_width = d.textlength(price_str, font=f_price)
+        currency_text = "$"
+        currency_width = d.textlength(currency_text, font=f_currency)
+        
+        # Price and currency on same line
+        d.text((block_x, y_price), price_str, font=f_price, fill=0)
+        # Currency slightly smaller and positioned next to price
+        d.text((block_x + price_width + 6 * SCALE, y_price + 5 * SCALE), currency_text, font=f_currency, fill=0)
 
-        # Draw background graph (light gray line)
-        graph_y_start = pad + 50 * SCALE
-        graph_y_end = pad + 70 * SCALE
-        graph_width = (midx - pad - 20 * SCALE) if sym == "BTC" else (img2.size[0] - midx - pad - 20 * SCALE)
-        
-        # Simple line graph: draw a wavy line
-        graph_points = []
-        for i in range(0, graph_width, 4 * SCALE):
-            x = block_x + i
-            # Simple sine wave pattern
-            y_offset = int(5 * SCALE * math.sin(i / (graph_width / (2 * math.pi))))
-            y = graph_y_start + (graph_y_end - graph_y_start) // 2 + y_offset
-            graph_points.append((x, y))
-        
-        # Draw graph line (light gray - use dithering pattern for gray effect)
-        for i in range(len(graph_points) - 1):
-            x1, y1 = graph_points[i]
-            x2, y2 = graph_points[i + 1]
-            # Draw dotted line for gray effect
-            steps = max(abs(x2 - x1), abs(y2 - y1))
-            for step in range(0, steps, 3):
-                t = step / steps if steps > 0 else 0
-                x = int(x1 + (x2 - x1) * t)
-                y = int(y1 + (y2 - y1) * t)
-                if x < block_x + graph_width:
-                    d.point((x, y), fill=0)
-
-        # Price info
-        px_text(d, block_x, pad + 78 * SCALE, "PRICE:", f_mid)
-        px_text(d, block_x, pad + 98 * SCALE, price.replace(",", ""), f_big)
-        if chg:
-            px_text(d, block_x, pad + 124 * SCALE, chg, f_sm)
-        
-        # 24H High/Low
-        if high_24h is not None:
-            high_str = f"24H HIGH: {high_24h:.2f}"
-            px_text(d, block_x, pad + 140 * SCALE, high_str, f_sm)
-        if low_24h is not None:
-            low_str = f"LOW: {low_24h:.2f}"
-            px_text(d, block_x, pad + 154 * SCALE, low_str, f_sm)
-
+    # Draw left column (BTC)
+    left_x = pad
     draw_coin(left_x, "BTC")
+    
+    # Draw right column (ETH)
+    right_x = midx + pad
     draw_coin(right_x, "ETH")
-
-    # Small VN time bottom-right (optional)
-    vn_tz = ZoneInfo("Asia/Ho_Chi_Minh")
-    now_vn = datetime.now(vn_tz).strftime("%d/%m %H:%M")
-    wt = d.textlength(now_vn, font=f_sm)
-    px_text(d, img2.size[0] - pad - wt, img2.size[1] - pad - 16 * SCALE, now_vn, f_sm)
 
     out = img2.resize((W, H), Image.NEAREST)
     buf = io.BytesIO()
