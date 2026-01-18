@@ -1,25 +1,6 @@
 # app.py
-# Dot Text API v2: rotate every 60s -> BTC -> ETH -> WEATHER -> ...
-# Deploy on Koyeb (FastAPI + /health) and run a background loop.
-#
-# Files:
-#   app.py
-#   weather.json   (dict: icon_key -> base64 PNG string)
-#
-# ENV required:
-#   DOT_API_KEY
-#   DOT_DEVICE_ID
-#
-# ENV optional:
-#   INTERVAL_SECS=60
-#   WEATHER_CITY="Ho Chi Minh City"
-#   WEATHER_LAT="10.8231"
-#   WEATHER_LON="106.6297"
-#   WEATHER_TZ="Asia/Ho_Chi_Minh"
-#   WEATHER_DAY_ONLY="1"   # if set, always use day icons
-#
-# Run:
-#   uvicorn app:app --host 0.0.0.0 --port 8000
+# Dot Text API v2: rotate every N seconds -> BTC -> ETH -> WEATHER -> ...
+# Designed for Koyeb: FastAPI healthcheck + robust background task with lifespan.
 
 import os
 import json
@@ -28,10 +9,12 @@ import asyncio
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from typing import Optional
+from typing import Optional, Dict, Any
 
 import httpx
 from fastapi import FastAPI
+from fastapi import Request
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -47,7 +30,7 @@ BINANCE_24HR = "https://api.binance.com/api/v3/ticker/24hr"
 OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
 DOT_TEXT_API_V2 = "https://dot.mindreset.tech/api/authV2/open/device/{device_id}/text"
 
-# ===== Weather text VI (Open-Meteo weathercode) =====
+# ===== Weather text VI =====
 WEATHER_TEXT_VI = {
     0: "Trời quang",
     1: "Gần như quang",
