@@ -132,47 +132,50 @@ def make_canvas_2x() -> Image.Image:
 def load_icon(name: str) -> Image.Image | None:
     path = os.path.join(ASSET_DIR, name)
     if not os.path.exists(path):
+        logger.warning("Icon not found: %s", path)
         return None
-    im = Image.open(path)
     
-    # Convert to RGBA first to handle transparency
-    if im.mode != "RGBA":
-        im = im.convert("RGBA")
-    
-    # Create a white background (since our canvas is now white)
-    bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
-    # Composite: paste icon on white background (icon on top)
-    # If icon has transparency, it will show white background
-    im = Image.alpha_composite(bg, im)
-    
-    # Convert to grayscale first
-    im = im.convert("L")
-    
-    # Check average brightness to determine if we need to invert
-    pixels = list(im.getdata())
-    total_brightness = sum(pixels)
-    avg_brightness = total_brightness / len(pixels) if pixels else 128
-    
-    # If average is bright (> 180), likely a light icon on transparent bg -> invert to make it black
-    # If average is dark (< 80), likely a dark icon -> keep as is (will be black)
-    # Otherwise, threshold and invert to make icon black
-    if avg_brightness > 180:
-        # Light icon, invert to make it black
-        im = Image.eval(im, lambda x: 255 - x)
-    elif avg_brightness < 80:
-        # Dark icon, keep as is (will be black)
-        pass
-    else:
-        # Medium brightness, threshold to make it black
-        # Convert pixels < 128 to black (0), >= 128 to white (255)
-        im = Image.eval(im, lambda x: 0 if x < 128 else 255)
-        # Then invert to make the icon part black
-        im = Image.eval(im, lambda x: 255 - x)
-    
-    # Convert to 1-bit (black and white)
-    im = im.convert("1")
-    
-    return im.resize((im.size[0] * SCALE, im.size[1] * SCALE), Image.NEAREST)
+    try:
+        im = Image.open(path)
+        
+        # Convert to RGBA to handle transparency
+        if im.mode != "RGBA":
+            im = im.convert("RGBA")
+        
+        # Create a temporary image to extract the icon shape
+        # Convert to grayscale for thresholding
+        gray = im.convert("L")
+        
+        # Create mask: anything that's not fully transparent becomes part of the icon
+        # For RGBA, alpha channel < 128 means transparent
+        alpha = im.split()[3] if im.mode == "RGBA" else None
+        
+        # Convert to black and white: icon parts become black (0), background becomes white (255)
+        # Strategy: if pixel is not transparent and has color, make it black
+        if alpha:
+            # Create mask from alpha channel
+            mask = alpha.point(lambda x: 0 if x < 128 else 255, mode="1")
+            # Create black icon: where mask is True, set to black (0)
+            icon_bw = Image.new("1", im.size, 255)  # Start with white
+            # Where mask is True (icon area), set to black
+            icon_bw.paste(0, mask=mask)
+        else:
+            # No alpha channel, use grayscale threshold
+            # Assume darker areas are the icon
+            threshold = 128
+            icon_bw = gray.point(lambda x: 0 if x < threshold else 255, mode="1")
+            # Invert so icon is black
+            icon_bw = Image.eval(icon_bw, lambda x: 255 - x)
+        
+        # Resize with nearest neighbor to keep pixelated look
+        icon_bw = icon_bw.resize((icon_bw.size[0] * SCALE, icon_bw.size[1] * SCALE), Image.NEAREST)
+        
+        logger.info("Loaded icon %s: size=%s, mode=%s", name, icon_bw.size, icon_bw.mode)
+        return icon_bw
+        
+    except Exception as e:
+        logger.error("Error loading icon %s: %s", path, e)
+        return None
 
 
 def is_night_vn() -> bool:
@@ -311,11 +314,15 @@ async def fetch_prices_binance(client: httpx.AsyncClient) -> list[dict]:
             data = r.json()
             price = safe_float(data.get("lastPrice"), 0.0) or 0.0
             cp = safe_float(data.get("priceChangePercent"), None)
+            high_24h = safe_float(data.get("highPrice"), None)
+            low_24h = safe_float(data.get("lowPrice"), None)
             out.append(
                 {
                     "symbol": DISPLAY_MAP.get(sym, sym),
                     "price": price,
                     "change_percent_24h": cp,
+                    "high_24h": high_24h,
+                    "low_24h": low_24h,
                 }
             )
         except Exception as e:
@@ -389,13 +396,15 @@ def render_weather_pixel(city: str, weather: dict) -> bytes:
 
     px_hline(d, pad + 6 * SCALE, img2.size[0] - pad - 6 * SCALE, pad + 24 * SCALE, w=2, fill=0)
 
-    # Icon
+    # Icon - larger and more prominent
     icon = load_icon(weather_icon_name(weather.get("code_day")))
     if icon:
+        # Center icon horizontally, position it prominently
         ix = (img2.size[0] - icon.size[0]) // 2
-        iy = pad + 30 * SCALE
-        # Paste icon with mask to handle transparency properly
-        img2.paste(icon, (ix, iy), icon if icon.mode == "1" else None)
+        iy = pad + 32 * SCALE  # Position after header line
+        # Paste icon directly (icon is already 1-bit with black icon on white)
+        # Use the icon itself as mask for proper pasting
+        img2.paste(icon, (ix, iy), icon)
 
     # City
     city_u = city.upper()
@@ -466,13 +475,13 @@ def render_crypto_pixel(prices: list[dict]) -> bytes:
     top_y = pad + 30 * SCALE
 
     if btc_icon:
-        img2.paste(btc_icon, (left_x, top_y), btc_icon if btc_icon.mode == "1" else None)
+        img2.paste(btc_icon, (left_x, top_y), btc_icon)
         px_text(d, left_x + 44 * SCALE, top_y + 2 * SCALE, "BTC", f_head)
     else:
         px_text(d, left_x, top_y + 2 * SCALE, "BTC", f_head)
 
     if eth_icon:
-        img2.paste(eth_icon, (right_x, top_y), eth_icon if eth_icon.mode == "1" else None)
+        img2.paste(eth_icon, (right_x, top_y), eth_icon)
         px_text(d, right_x + 44 * SCALE, top_y + 2 * SCALE, "ETH", f_head)
     else:
         px_text(d, right_x, top_y + 2 * SCALE, "ETH", f_head)
@@ -489,12 +498,52 @@ def render_crypto_pixel(prices: list[dict]) -> bytes:
 
         price = fmt_price_usd(p["price"])
         chg = fmt_change(p.get("change_percent_24h"))
+        
+        # Get 24h high/low from Binance data (we need to fetch this)
+        # For now, use price as placeholder
+        high_24h = p.get("high_24h", p["price"] * 1.01)
+        low_24h = p.get("low_24h", p["price"] * 0.99)
 
-        # fewer lines = clearer on e-ink
+        # Draw background graph (light gray line)
+        graph_y_start = pad + 50 * SCALE
+        graph_y_end = pad + 70 * SCALE
+        graph_width = (midx - pad - 20 * SCALE) if sym == "BTC" else (img2.size[0] - midx - pad - 20 * SCALE)
+        
+        # Simple line graph: draw a wavy line
+        graph_points = []
+        for i in range(0, graph_width, 4 * SCALE):
+            x = block_x + i
+            # Simple sine wave pattern
+            y_offset = int(5 * SCALE * math.sin(i / (graph_width / (2 * math.pi))))
+            y = graph_y_start + (graph_y_end - graph_y_start) // 2 + y_offset
+            graph_points.append((x, y))
+        
+        # Draw graph line (light gray - use dithering pattern for gray effect)
+        for i in range(len(graph_points) - 1):
+            x1, y1 = graph_points[i]
+            x2, y2 = graph_points[i + 1]
+            # Draw dotted line for gray effect
+            steps = max(abs(x2 - x1), abs(y2 - y1))
+            for step in range(0, steps, 3):
+                t = step / steps if steps > 0 else 0
+                x = int(x1 + (x2 - x1) * t)
+                y = int(y1 + (y2 - y1) * t)
+                if x < block_x + graph_width:
+                    d.point((x, y), fill=0)
+
+        # Price info
         px_text(d, block_x, pad + 78 * SCALE, "PRICE:", f_mid)
         px_text(d, block_x, pad + 98 * SCALE, price.replace(",", ""), f_big)
         if chg:
             px_text(d, block_x, pad + 124 * SCALE, chg, f_sm)
+        
+        # 24H High/Low
+        if high_24h is not None:
+            high_str = f"24H HIGH: {high_24h:.2f}"
+            px_text(d, block_x, pad + 140 * SCALE, high_str, f_sm)
+        if low_24h is not None:
+            low_str = f"LOW: {low_24h:.2f}"
+            px_text(d, block_x, pad + 154 * SCALE, low_str, f_sm)
 
     draw_coin(left_x, "BTC")
     draw_coin(right_x, "ETH")
