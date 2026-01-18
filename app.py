@@ -530,7 +530,7 @@ async def ticker_loop() -> None:
             except Exception as e:
                 logger.exception("Loop error: %s", e)
 
-            await asyncio.sleep(60)
+            await asyncio.sleep(120)
 
 
 # ===== FastAPI (healthcheck for Koyeb) =====
