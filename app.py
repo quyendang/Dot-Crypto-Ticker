@@ -102,6 +102,32 @@ def load_pixel_font(size: int) -> ImageFont.ImageFont:
         logger.warning("Cannot load pixel.ttf at %s (%s). Using default font.", font_path, e)
         return ImageFont.load_default()
 
+# ===== Font (default with size) =====
+def load_default_font(size: int) -> ImageFont.ImageFont:
+    """
+    Load font with specified size from FONT_DIR.
+    Tries common monospace font names, falls back to default if not found.
+    """
+    # Try common monospace font names in FONT_DIR
+    font_names = [
+        "DejaVuSansMono.ttf",
+        "LiberationMono-Regular.ttf",
+        "NotoMono-Regular.ttf",
+        "Courier-New.ttf",
+        "monospace.ttf",
+    ]
+    
+    for font_name in font_names:
+        font_path = os.path.join(FONT_DIR, font_name)
+        try:
+            if os.path.exists(font_path):
+                return ImageFont.truetype(font_path, size=size)
+        except Exception:
+            continue
+    
+    # Fallback: use default font (fixed size, but we'll scale text manually)
+    return ImageFont.load_default()
+
 
 # ===== Pixel draw helpers =====
 def px_text(d: ImageDraw.ImageDraw, x: int, y: int, text: str, font, fill=0):
@@ -454,47 +480,13 @@ def render_crypto_pixel(prices: list[dict]) -> bytes:
     img2 = make_canvas_2x()
     d = ImageDraw.Draw(img2)
 
-    # Use default system fonts (monospaced style like SwiftUI)
+    # Use default font with different sizes (matching SwiftUI)
     # Font sizes match SwiftUI: symbol=50, price=30, currency=15, price_label=11, change=13
-    try:
-        # Try to use system monospaced font (Courier New or similar)
-        # On Linux/Windows, try different paths
-        font_paths = [
-            "/System/Library/Fonts/Supplemental/Courier New Bold.ttf",  # macOS
-            "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf",  # Linux
-            "C:/Windows/Fonts/courbd.ttf",  # Windows
-        ]
-        f_symbol = None
-        f_price = None
-        f_currency = None
-        f_price_label = None
-        f_change = None
-        
-        for font_path in font_paths:
-            try:
-                f_symbol = ImageFont.truetype(font_path, 50 * SCALE)
-                f_price = ImageFont.truetype(font_path, 30 * SCALE)
-                f_currency = ImageFont.truetype(font_path, 15 * SCALE)
-                f_price_label = ImageFont.truetype(font_path, 11 * SCALE)
-                f_change = ImageFont.truetype(font_path, 13 * SCALE)
-                break
-            except:
-                continue
-        
-        # Fallback to default font if system fonts not available
-        if f_symbol is None:
-            f_symbol = ImageFont.load_default()
-            f_price = ImageFont.load_default()
-            f_currency = ImageFont.load_default()
-            f_price_label = ImageFont.load_default()
-            f_change = ImageFont.load_default()
-    except Exception as e:
-        logger.warning("Could not load system fonts, using default: %s", e)
-        f_symbol = ImageFont.load_default()
-        f_price = ImageFont.load_default()
-        f_currency = ImageFont.load_default()
-        f_price_label = ImageFont.load_default()
-        f_change = ImageFont.load_default()
+    f_symbol = load_default_font(50 * SCALE)
+    f_price = load_default_font(30 * SCALE)
+    f_currency = load_default_font(15 * SCALE)
+    f_price_label = load_default_font(11 * SCALE)
+    f_change = load_default_font(13 * SCALE)
 
     pad = 10 * SCALE  # Padding 10px like SwiftUI
     midx = img2.size[0] // 2
