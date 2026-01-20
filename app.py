@@ -415,7 +415,7 @@ async def ticker_loop() -> None:
                     # Fetch Tet countdown
                     tet_data = await fetch_tet_countdown(client)
                     dayCount = tet_data.get("remainingDays", 0)
-                    countdown_text = "Còn {{dayCount}} ngày"
+                    countdown_text = f"Còn {dayCount} ngày"
                     
                     
                     # Fetch lunar date
