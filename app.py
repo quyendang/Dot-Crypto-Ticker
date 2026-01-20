@@ -27,8 +27,11 @@ logger = logging.getLogger("dot-text-rotator")
 
 # ===== APIs =====
 BINANCE_24HR = "https://api.binance.com/api/v3/ticker/24hr"
+BINANCE_KLINES = "https://api.binance.com/api/v3/klines"
 OPEN_METEO = "https://api.open-meteo.com/v1/forecast"
 DOT_TEXT_API_V2 = "https://dot.mindreset.tech/api/authV2/open/device/{device_id}/text"
+TET_COUNTDOWN_API = "https://open.oapi.vn/holiday/tet/countdown"
+LUNAR_DATE_API = "https://open.oapi.vn/date/convert-to-lunar"
 
 # ===== Weather text VI =====
 WEATHER_TEXT_VI = {
@@ -70,7 +73,10 @@ def weather_desc_vi(code: Optional[int]) -> str:
 # ===== BTC/ETH icon base64 (from you) =====
 BTC_ICON_B64 = "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"
 
-ETH_ICON_B64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAIRlWElmTU0AKgAAAAgABQESAAMAAAABAAEAAAEaAAUAAAABAAAASgEbAAUAAAABAAAAUgEoAAMAAAABAAIAAIdpAAQAAAABAAAAWgAAAAAAAABIAAAAAQAAAEgAAAABAAOgAQADAAAAAQABAACgAgAEAAAAAQAAACCgAwAEAAAAAQAAACAAAAAAX7wP8AAAAAlwSFlzAAALEwAACxMBAJqcGAAAAVlpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IlhNUCBDb3JlIDYuMC4wIj4KICAgPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4KICAgICAgPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIKICAgICAgICAgICAgeG1sbnM6dGlmZj0iaHR0cDovL25zLmFkb2JlLmNvbS90aWZmLzEuMC8iPgogICAgICAgICA8dGlmZjpPcmllbnRhdGlvbj4xPC90aWZmOk9yaWVudGF0aW9uPgogICAgICA8L3JkZjpEZXNjcmlwdGlvbj4KICAgPC9yZGY6UkRGPgo8L3g6eG1wbWV0YT4KGV7hBwAAArVJREFUWAm9ljusTVEQhrdnRIFCh9CIROi8EoVGJUF940aLKOkkNPTiEYlKaIlS4nYKJDpucxMNhZsoRbxf/3fW/DF2zuac/TDJv+axZs2/1tqz9zlV1V6WpKXZTuHhzaWiAK2l7eIVwXhe+kLYjrXezKQLl0XiJumvAWzEc8UbaDTJXdX/GbgXXJ4biLqqfM2Hg/ibNGAjRwTEOcXrcXSnr1TNlwKkeQPEmEOcW7yeRp/soupB/iV0ti8Fl3PD7a78bLer1HcB0h+hs02MHMRritdx9Ov6UHUgpPvRGb6ROcURryleh9HXeUw1msi9EW9sNvi8tjW9T7FGFd7EBmg8E9a15xaVwxrENYo35egTXNU6yHzNdeLsO+dacLnGlNRVtTxW7JGGgAbLjZdJs53z9kYN1wr33yq/x0+UDoGfbyZrsp37NFHlmik83vSOz2kako+hmwjHxb2GGohrFi/GpgbhGpHNRVWrpDmV4xEeq8ghlzXIltFYvh9hTqa8OXrgheBT0mSQ2Lcm5gYkNi/sF/4qJqknEafgUWG9sFM4IbwX3NW8chbbzH0QTgo7hI3CbgFp4iqztTE3DE34QOAZ8nm9IfjUXDWwf1M2m1grPBPuCMhU5GXJ7285NwABN3IqJrdKPxJM/Fj2tpg7G/HX4aNabYCF/nk9JNtk87J3MSmZFY6PrKraJ70gOI9HgIzt/jI12egCl5Xu4uhbgh/L7drcGfkIj6OzuB/QzwXIP4d+Kw2IfQo9J42Q77WjQJfBt8C1+v+AN5HJ32l+QxD1+n+Amr7O07IhpfvZDOA1JDYjIM4tXo+jT3VfNSHkw+OPD32A+LaK1/Po12md6i4KbAK8ElYLiHOKN8Do6z2o2t7AgeDx3AC0f5Y00XWFr/xvcvj8etET7gvHYj/Dq0yY7amYfwF5Gt6/sbuW8wAAAABJRU5ErkJggg=="
+ETH_ICON_B64 = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAIRlWElmTU0AKgAAAAgABQESAAMAAAABAAEAAAEaAAUAAAABAAAASgEbAAUAAAABAAAAUgEoAAMAAAABAAIAAIdpAAQAAAABAAAAWgAAAAAAAABIAAAAAQAAAEgAAAABAAOgAQADAAAAAQABAACgAgAEAAAAAQAAACCgAwAEAAAAAQAAACAAAAAAX7wP8AAAAAlwSFlzAAALEwAACxMBAJqcGAAAAVlpVFh0WE1MOmNvbS5hZG9iZS54bXAAAAAAADx4OnhtcG1ldGEgeG1sbnM6eD0iYWRvYmU6bnM6bWV0YS8iIHg6eG1wdGs9IlhNUCBDb3JlIDYuMC4wIj4KICAgPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4KICAgICAgPHJkZjpEZXNjcmlwdGlvbiByZGY6YWJvdXQ9IiIKICAgICAgICAgICAgeG1sbnM6dGlmZj0iaHR0cDovL25zLmFkb2JlLmNvbS90aWZmLzEuMC8iPgogICAgICAgICA8dGlmZjpPcmllbnRhdGlvbj4xPC90aWZmOk9yaWVudGF0aW9uPgogICAgICA8L3JkZjpEZXNjcmlwdGlvbj4KICAgPC9yZGY6UkRGPgo8L3g6eG1wbWV0YT4KGV7hBwAAArVJREFUWAm9ljusTVEQhrdnRIFCh9CIROi8EoVGJUF940aLKOkkNPTiEYlKaIlS4nYKJDpucxMNhZsoRbxf/3fW/DF2zuac/TDJv+axZs2/1tqz9zlV1V6WpKXZTuHhzaWiAK2l7eIVwXhe+kLYjrXezKQLl0XiJumvAWzEc8UbaDTJXdX/GbgXXJ4biLqqfM2Hg/ibNGAjRwTEOcXrcXSnr1TNlwKkeQPEmEOcW7yeRp/soupB/iV0ti8Fl3PD7a78bLer1HcB0h+hs02MHMRritdx9Ov6UHUgpPvRGb6ROcURryleh9HXeUw1msi9EW9sNvi8tjW9T7FGFd7EBmg8E9a15xaVwxrENYo35egTXNU6yHzNdeLsO+dacLnGlNRVtTxW7JGGgAbLjZdJs53z9kYN1wr33yq/x0+UDoGfbyZrsp37NFHlmik83vTOz2kako+hmwjHxb2GGohrFi/GpgbhGpHNRVWrpDmV4xEeq8ghlzXIltFYvh9hTqa8OXrgheBT0mSQ2Lcm5gYkNi/sF/4qJqknEafgUWG9sFM4IbwX3NW8chbbzH0QTgo7hI3CbgFp4iqztTE3DE34QOAZ8nm9IfjUXDWwf1M2m1grPBPuCMhU5GXJ7285NwABN3IqJrdKPxJM/Fj2tpg7G/HX4aNabYCF/nk9JNtk87J3MSmZFY6PrKraJ70gOI9HgIzt/jI12egCl5Xu4uhbgh/L7drcGfkIj6OzuB/QzwXIP4d+Kw2IfQo9J42Q77WjQJfBt8C1+v+AN5HJ32l+QxD1+n+Amr7O07IhpfvZDOA1JDYjIM4tXo+jT3VfNSHkw+OPD32A+LaK1/Po12md6i4KbAK8ElYLiHOKN8Do6z2o2t7AgeDx3AC0f5Y00XWFr/xvcvj8etET7gvHYj/Dq0yY7amYfwF5Gt6/sbuW8wAAAABJRU5ErkJggg=="
+
+# Tet countdown icon (base64)
+TET_ICON_B64 = "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"
 
 # ===== Paths =====
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -170,14 +176,79 @@ def fmt_change(cp: Optional[float]) -> str:
     sign = "+" if cp >= 0 else ""
     return f"{sign}{cp:.1f}% {arrow}"
 
+def calculate_rsi(prices: list[float], period: int = 14) -> Optional[float]:
+    """Calculate RSI from a list of closing prices"""
+    if len(prices) < period + 1:
+        return None
+    
+    # Calculate price changes
+    deltas = []
+    for i in range(1, len(prices)):
+        deltas.append(prices[i] - prices[i - 1])
+    
+    # Separate gains and losses
+    gains = [d if d > 0 else 0.0 for d in deltas]
+    losses = [-d if d < 0 else 0.0 for d in deltas]
+    
+    # Calculate average gain and loss using Wilder's smoothing
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+    
+    # Apply Wilder's smoothing for remaining periods
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+    
+    # Calculate RSI
+    if avg_loss == 0:
+        return 100.0
+    
+    rs = avg_gain / avg_loss
+    rsi = 100.0 - (100.0 / (1.0 + rs))
+    return round(rsi, 2)
+
+async def fetch_rsi_4h(client: httpx.AsyncClient, symbol: str) -> Optional[float]:
+    """Fetch 4h klines and calculate RSI"""
+    try:
+        # Fetch last 100 candles (4h interval) - need at least 15 for RSI(14)
+        params = {
+            "symbol": symbol,
+            "interval": "4h",
+            "limit": 100
+        }
+        r = await client.get(BINANCE_KLINES, params=params)
+        if r.status_code // 100 != 2:
+            logger.warning(f"Binance klines error {r.status_code} for {symbol}")
+            return None
+        
+        klines = r.json()
+        # Kline format: [timestamp, open, high, low, close, volume, ...]
+        # Extract close prices (index 4)
+        close_prices = [safe_float(k[4], 0.0) for k in klines if safe_float(k[4], None) is not None]
+        
+        if len(close_prices) < 15:
+            logger.warning(f"Not enough data for RSI calculation: {len(close_prices)} candles")
+            return None
+        
+        rsi = calculate_rsi(close_prices)
+        return rsi
+    except Exception as e:
+        logger.warning(f"Error calculating RSI for {symbol}: {e}")
+        return None
+
 async def fetch_binance_symbol(client: httpx.AsyncClient, symbol: str) -> Dict[str, Any]:
     r = await client.get(BINANCE_24HR, params={"symbol": symbol})
     if r.status_code // 100 != 2:
         raise RuntimeError(f"Binance error {r.status_code}: {r.text}")
     data = r.json()
+    
+    # Fetch RSI 4h in parallel
+    rsi_4h = await fetch_rsi_4h(client, symbol)
+    
     return {
         "price": safe_float(data.get("lastPrice"), None),
         "change_percent": safe_float(data.get("priceChangePercent"), None),
+        "rsi_4h": rsi_4h,
     }
 
 async def fetch_weather_today(client: httpx.AsyncClient, lat: float, lon: float, tz: str) -> Dict[str, Any]:
@@ -214,6 +285,31 @@ async def fetch_weather_today(client: httpx.AsyncClient, lat: float, lon: float,
         "code_now": code_now,
         "code_day": code_day,
     }
+
+async def fetch_tet_countdown(client: httpx.AsyncClient) -> Dict[str, Any]:
+    """Fetch Tet countdown from open.oapi.vn"""
+    r = await client.get(TET_COUNTDOWN_API)
+    if r.status_code // 100 != 2:
+        raise RuntimeError(f"Tet countdown API error {r.status_code}: {r.text}")
+    data = r.json()
+    if data.get("code") != "success":
+        raise RuntimeError(f"Tet countdown API returned error: {data.get('message')}")
+    return data.get("data", {})
+
+async def fetch_lunar_date(client: httpx.AsyncClient, day: int, month: int, year: int) -> Dict[str, Any]:
+    """Convert solar date to lunar date"""
+    payload = {
+        "day": day,
+        "month": month,
+        "year": year,
+    }
+    r = await client.post(LUNAR_DATE_API, json=payload, headers={"Content-Type": "application/json"})
+    if r.status_code // 100 != 2:
+        raise RuntimeError(f"Lunar date API error {r.status_code}: {r.text}")
+    data = r.json()
+    if data.get("code") != "success":
+        raise RuntimeError(f"Lunar date API returned error: {data.get('message')}")
+    return data.get("data", {})
 
 async def send_to_dot_text_api(
     client: httpx.AsyncClient,
@@ -255,12 +351,12 @@ async def ticker_loop() -> None:
     lon = float(os.getenv("WEATHER_LON", "108.058922"))
     tz = os.getenv("WEATHER_TZ", "Asia/Ho_Chi_Minh")
 
-    logger.info("ticker_loop started: interval=%ss seq=BTC->ETH->WEATHER", interval)
+    logger.info("ticker_loop started: interval=%ss seq=BTC->ETH->WEATHER->DAY", interval)
 
     timeout = httpx.Timeout(30.0)
     default_headers = {"User-Agent": "dot-text-rotator/2.0", "Accept-Encoding": "identity"}
 
-    seq = ["BTC", "ETH", "WEATHER"]
+    seq = ["BTC", "ETH", "WEATHER", "DAY"]
     idx = 0
 
     async with httpx.AsyncClient(timeout=timeout, headers=default_headers, follow_redirects=True) as client:
@@ -275,23 +371,27 @@ async def ticker_loop() -> None:
                     data = await fetch_binance_symbol(client, "BTCUSDT")
                     price = data["price"]
                     cp = data["change_percent"]
+                    rsi_4h = data.get("rsi_4h")
                     if price is None:
                         raise RuntimeError("BTC price missing")
                     title = "BTC"
-                    message = f"Price: {fmt_price(price)} USD\nChange: {fmt_change(cp)}"
+                    rsi_text = f"RSI 4h: {rsi_4h:.2f}" if rsi_4h is not None else "RSI 4h: N/A"
+                    message = f"Price: {fmt_price(price)} USD\nChange: {fmt_change(cp)}\n{rsi_text}"
                     await send_to_dot_text_api(client, api_key, device_id, title, message, sig, BTC_ICON_B64)
 
                 elif kind == "ETH":
                     data = await fetch_binance_symbol(client, "ETHUSDT")
                     price = data["price"]
                     cp = data["change_percent"]
+                    rsi_4h = data.get("rsi_4h")
                     if price is None:
                         raise RuntimeError("ETH price missing")
                     title = "ETH"
-                    message = f"Price: {fmt_price(price)} USD\nChange: {fmt_change(cp)}"
+                    rsi_text = f"RSI 4h: {rsi_4h:.2f}" if rsi_4h is not None else "RSI 4h: N/A"
+                    message = f"Price: {fmt_price(price)} USD\nChange: {fmt_change(cp)}\n{rsi_text}"
                     await send_to_dot_text_api(client, api_key, device_id, title, message, sig, ETH_ICON_B64)
 
-                else:
+                elif kind == "WEATHER":
                     w = await fetch_weather_today(client, lat, lon, tz)
                     temp_now = w.get("temp_now")
                     tmax = w.get("tmax")
@@ -303,6 +403,31 @@ async def ticker_loop() -> None:
                     message = f"{city}\n{desc}\nH:{hi}  L:{lo}"
                     icon_b64 = get_weather_icon_b64(w.get("code_now") or w.get("code_day"))
                     await send_to_dot_text_api(client, api_key, device_id, title, message, sig, icon_b64)
+
+                else:  # DAY - Tet countdown + Lunar date
+                    # Get current date in VN timezone
+                    vn = ZoneInfo("Asia/Ho_Chi_Minh")
+                    now_vn = datetime.now(vn)
+                    current_day = now_vn.day
+                    current_month = now_vn.month
+                    current_year = now_vn.year
+                    
+                    # Fetch Tet countdown
+                    tet_data = await fetch_tet_countdown(client)
+                    countdown_text = tet_data.get("text", "N/A")
+                    
+                    # Fetch lunar date
+                    lunar_data = await fetch_lunar_date(client, current_day, current_month, current_year)
+                    day_am = lunar_data.get("day", 0)
+                    month_am = lunar_data.get("month", 0)
+                    year_am = lunar_data.get("sexagenaryCycle", "N/A")
+                    
+                    # Format message
+                    title = f"Đến TẾT: {countdown_text}"
+                    message = f"Today: {current_day}/{current_month}/{current_year}\n{day_am}/{month_am}  {year_am}"
+                    signature = "❤︎⁠❤︎⁠❤︎⁠❤︎⁠❤︎⁠❤︎⁠❤︎⁠❤︎⁠❤︎⁠"
+                    
+                    await send_to_dot_text_api(client, api_key, device_id, title, message, signature, TET_ICON_B64)
 
                 # ✅ only advance when success
                 idx += 1
