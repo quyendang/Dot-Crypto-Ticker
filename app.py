@@ -414,7 +414,9 @@ async def ticker_loop() -> None:
                     
                     # Fetch Tet countdown
                     tet_data = await fetch_tet_countdown(client)
-                    countdown_text = tet_data.get("text", "N/A")
+                    dayCount = tet_data.get("remainingDays", 0)
+                    countdown_text = "Còn {{dayCount}} ngày"
+                    
                     
                     # Fetch lunar date
                     lunar_data = await fetch_lunar_date(client, current_day, current_month, current_year)
@@ -423,9 +425,9 @@ async def ticker_loop() -> None:
                     year_am = lunar_data.get("sexagenaryCycle", "N/A")
                     
                     # Format message
-                    title = f"Đến TẾT: {countdown_text}"
-                    message = f"Today: {current_day}/{current_month}/{current_year}\n{day_am}/{month_am}  {year_am}"
-                    signature = "❤︎⁠❤︎⁠❤︎⁠❤︎⁠❤︎⁠❤︎⁠❤︎⁠❤︎⁠❤︎⁠"
+                    title = f"{countdown_text} dến TẾT"
+                    message = f"Hôm nay: {current_day}/{current_month}/{current_year}\nÂm lịch: {day_am}/{month_am}  {year_am}"
+                    signature = "++++++++++⁠"
                     
                     await send_to_dot_text_api(client, api_key, device_id, title, message, signature, TET_ICON_B64)
 
