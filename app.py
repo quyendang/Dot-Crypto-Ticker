@@ -388,9 +388,27 @@ async def ticker_loop() -> None:
                     cp = data["change_percent"]
                     rsi_4h = data.get("rsi_4h")
                     rsi_1d = data.get("rsi_1d")
+
+                    data_btc = await fetch_binance_symbol(client, "BTCUSDT")
+                    price_btc = data_btc["price"]
+                    cp_btc = data_btc["change_percent"]
+                    rsi_4h_btc = data_btc.get("rsi_4h")
+                    rsi_1d_btc = data_btc.get("rsi_1d")
+                    
                     if price is None:
                         raise RuntimeError("ETH price missing")
+
+                    # Determine title based on RSI thresholds
                     title = "ETH"
+                    if (rsi_4h is not None and rsi_4h_btc is not None and
+                        rsi_4h < 30 and rsi_4h_btc < 30):
+                        title = "ETH (BUY ↑)"
+                    elif (rsi_4h is not None and rsi_4h_btc is not None and
+                          rsi_4h > 70 and rsi_4h_btc > 70):
+                        title = "ETH (SELL ↓)"
+                    else:
+                        title = "ETH"
+
                     rsi4_text = f"RSI 4h: {rsi_4h:.2f}" if rsi_4h is not None else "RSI 4h: N/A"
                     rsi1d_text = f"1d: {rsi_1d:.2f}" if rsi_1d is not None else "1d: N/A"
                     message = f"Price: {fmt_price(price)} USD\nChange: {fmt_change(cp)}\n{rsi4_text}   {rsi1d_text}"
